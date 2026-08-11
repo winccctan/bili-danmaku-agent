@@ -291,7 +291,7 @@
                 <div class="form-group">
                     <label>视频时间点（弹幕出现的位置）</label>
                     <input type="text" id="progress" placeholder="格式: 1:30 或 90（秒）" value="0:01">
-                    <p class="hint">支持 分:秒 格式（如 1:30）或直接输入秒数（如 90）</p>
+                    <p class="hint" id="progress-hint">支持 分:秒 格式（如 1:30）或直接输入秒数（如 90）</p>
                 </div>
 
                 <button class="btn btn-primary" onclick="sendDanmaku()" id="send-btn">发送弹幕</button>
@@ -532,6 +532,7 @@
         let taskTimers = {}; // taskId -> setTimeout handle
         let autoSendTimer = null; // 自动循环发送定时器
         let autoSendState = { running: false, index: 0, messages: [], successCount: 0, failCount: 0, totalSent: 0 };
+        let videoDuration = 0; // 视频时长（秒），用于限制 progress
 
         const COLORS = {
             "白色": 16777215, "红色": 65536, "蓝色": 16711680, "绿色": 65280,
@@ -634,6 +635,8 @@
                 const data = await resp.json();
                 if (data.success) {
                     const v = data.data;
+                    videoDuration = v.duration || 0; // 存储视频时长
+                    updateProgressHints(); // 更新时间提示
                     const box = document.getElementById('video-info-box');
                     box.className = 'video-info';
                     box.innerHTML = `
@@ -656,6 +659,16 @@
             const m = Math.floor(sec / 60);
             const s = sec % 60;
             return `${m}:${s.toString().padStart(2,'0')}`;
+        }
+
+        // 更新时间输入框的提示，显示视频最大时长
+        function updateProgressHints() {
+            if (videoDuration > 0) {
+                const maxStr = formatDuration(videoDuration);
+                const hint = `支持 分:秒 格式（如 1:30）或直接输入秒数（如 90）| 视频时长: ${maxStr}，超过将自动截断`;
+                const ph = document.getElementById('progress-hint');
+                if (ph) ph.textContent = hint;
+            }
         }
 
         // ========== Tab 切换 ==========

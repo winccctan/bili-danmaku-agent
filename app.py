@@ -143,6 +143,11 @@ def send_danmaku_api(
     try:
         video_info = get_video_info(bvid, session)
         cid = video_info["cid"]
+        video_duration = video_info.get("duration", 0)
+
+        # 自动限制 progress 不超过视频时长（留 1 秒余量）
+        if video_duration > 0 and progress >= video_duration:
+            progress = max(1, video_duration - 1)
 
         url = "https://api.bilibili.com/x/v2/dm/post"
         headers = {
@@ -195,6 +200,9 @@ def send_danmaku_api(
             # 其他错误或重试次数用完
             if data["code"] == 36703:
                 msg = f"发送频率过快，B站限制了发送 (code=36703)。请等待 1-2 分钟后再试"
+            elif data["code"] == 36714:
+                dur_str = f"视频时长仅 {video_duration} 秒" if video_duration else "未知视频时长"
+                msg = f"弹幕时间点超过视频时长 (code=36714)。{dur_str}，请将时间点设为视频时长以内"
             else:
                 msg = f"发送失败: {data.get('message', '未知错误')} (code={data['code']})"
             return {
