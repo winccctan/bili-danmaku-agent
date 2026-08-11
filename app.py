@@ -465,6 +465,7 @@ def danmaku_list():
     """获取视频弹幕列表，验证弹幕是否发送成功"""
     data = request.json or {}
     url = data.get("url", "").strip()
+    sessdata = data.get("sessdata", "").strip()
     if not url:
         return jsonify({"success": False, "message": "请提供视频链接或 BV ID"})
 
@@ -496,6 +497,10 @@ def danmaku_list():
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
             "Referer": f"https://www.bilibili.com/video/{bvid}",
         }
+        # 带上 SESSDATA 可以获取更完整/最新的弹幕
+        cookies = {}
+        if sessdata:
+            cookies["SESSDATA"] = sessdata
 
         mode_map = {1: "滚动", 4: "顶部", 5: "底部", 6: "逆向", 7: "高级", 8: "代码", 9: "BAS"}
         danmaku_items = []
@@ -505,9 +510,10 @@ def danmaku_list():
         num_segments = max(1, (duration // 360) + 1) if duration > 0 else 1
 
         for seg_idx in range(1, num_segments + 1):
-            dm_url = f"https://api.bilibili.com/x/v2/dm/web/seg.so?type=1&oid={cid}&segment_index={seg_idx}"
+            # 加 cache-bust 参数避免 CDN 缓存
+            dm_url = f"https://api.bilibili.com/x/v2/dm/web/seg.so?type=1&oid={cid}&segment_index={seg_idx}&_={int(time.time()*1000)}"
             try:
-                resp = requests.get(dm_url, headers=headers, timeout=10)
+                resp = requests.get(dm_url, headers=headers, cookies=cookies, timeout=10)
                 if resp.status_code != 200 or len(resp.content) < 10:
                     continue
                 parsed = _parse_danmaku_protobuf(resp.content)

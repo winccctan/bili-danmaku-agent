@@ -1313,9 +1313,10 @@
             document.getElementById('dm-list').innerHTML = '<div class="empty-state"><span class="spinner"></span> 正在获取弹幕列表...</div>';
 
             try {
+                const creds = getCredentials();
                 const resp = await fetch('/api/danmaku-list', {
                     method: 'POST', headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ url, page: selectedPage }),
+                    body: JSON.stringify({ url, page: selectedPage, ...creds }),
                 });
                 const data = await resp.json();
 
@@ -1324,10 +1325,14 @@
                     const info = data.data.video_info;
                     document.getElementById('dm-stats').classList.remove('hidden');
                     document.getElementById('dm-stats').style.display = 'flex';
-                    document.getElementById('dm-total').textContent = `共 ${data.data.total} 条`;
+                    const pageLabel = videoPages.length > 1 ? ` · P${selectedPage}` : '';
+                    document.getElementById('dm-total').textContent = `共 ${data.data.total} 条${pageLabel}`;
                     const titleEl = document.getElementById('dm-video-title');
                     titleEl.textContent = info.title.length > 25 ? info.title.substring(0, 25) + '...' : info.title;
                     renderDanmakuList();
+                    if (data.data.total === 0) {
+                        document.getElementById('dm-list').innerHTML = '<div class="empty-state">未获取到弹幕。新发送的弹幕可能需要 1-5 分钟才会出现在列表中（B站CDN缓存延迟）。</div>';
+                    }
                     showToast(`获取成功，共 ${data.data.total} 条弹幕`, 'success');
                 } else {
                     showToast(data.message, 'error');
