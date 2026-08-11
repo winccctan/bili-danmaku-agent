@@ -248,6 +248,7 @@
                 <div class="tab active" onclick="switchTab(event,'single')">单条发送</div>
                 <div class="tab" onclick="switchTab(event,'timed')">时间段发送</div>
                 <div class="tab" onclick="switchTab(event,'batch')">批量发送</div>
+                <div class="tab" onclick="switchTab(event,'auto')">自动循环</div>
                 <div class="tab" onclick="switchTab(event,'scheduled')">定时发送</div>
             </div>
 
@@ -386,6 +387,61 @@
                 <p class="hint" style="margin-top:8px;">所有弹幕发送到同一视频进度（1秒处），按间隔依次发送</p>
             </div>
 
+            <!-- ========== 自动循环发送 ========== -->
+            <div id="tab-auto" class="hidden">
+                <div class="form-group">
+                    <label>弹幕列表（每行一条，自动循环发送）</label>
+                    <textarea id="auto-text" placeholder="弹幕1&#10;弹幕2&#10;弹幕3..." rows="8" style="min-height:160px;"></textarea>
+                    <p class="hint" id="auto-count">0 条弹幕</p>
+                </div>
+
+                <div class="form-group">
+                    <label>弹幕模式</label>
+                    <div class="mode-group" id="auto-mode-group">
+                        <div class="mode-option active" data-mode="1" onclick="selectMode(this,'auto-mode-group')">滚动</div>
+                        <div class="mode-option" data-mode="4" onclick="selectMode(this,'auto-mode-group')">顶部</div>
+                        <div class="mode-option" data-mode="5" onclick="selectMode(this,'auto-mode-group')">底部</div>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>弹幕颜色</label>
+                    <div class="color-grid" id="auto-color-grid"></div>
+                </div>
+
+                <div class="row">
+                    <div class="form-group">
+                        <label>发送间隔（秒）</label>
+                        <input type="text" id="auto-interval" placeholder="默认 10 秒" value="10">
+                    </div>
+                    <div class="form-group">
+                        <label>视频时间点</label>
+                        <input type="text" id="auto-progress" placeholder="0:01" value="0:01">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>循环模式</label>
+                    <div class="dist-group" id="auto-loop-group">
+                        <div class="dist-option active" data-loop="once" onclick="selectAutoLoop(this)">发完即止</div>
+                        <div class="dist-option" data-loop="loop" onclick="selectAutoLoop(this)">无限循环</div>
+                    </div>
+                    <p class="hint">发完即止：列表发完自动停止 · 无限循环：发完从头开始继续</p>
+                </div>
+
+                <div style="display:flex; gap:10px; align-items:center;">
+                    <button class="btn btn-primary" onclick="startAutoSend()" id="auto-start-btn">开始自动发送</button>
+                    <button class="btn btn-outline" onclick="stopAutoSend()" id="auto-stop-btn" style="display:none;">停止</button>
+                </div>
+
+                <div class="form-group" style="margin-top:16px;">
+                    <label>实时进度</label>
+                    <div id="auto-progress-box" style="background:#f9fafb; border-radius:10px; padding:14px; font-size:13px; min-height:50px;">
+                        <span style="color:var(--text-tertiary);">点击「开始自动发送」启动</span>
+                    </div>
+                </div>
+            </div>
+
             <!-- ========== 定时发送（客户端定时） ========== -->
             <div id="tab-scheduled" class="hidden">
                 <div class="time-range-box">
@@ -463,14 +519,19 @@
         let currentTimedMode = 1;
         let currentBatchMode = 1;
         let currentScheduledMode = 1;
+        let currentAutoMode = 1;
         let currentColor = 16777215;
         let currentTimedColor = 16777215;
         let currentBatchColor = 16777215;
         let currentScheduledColor = 16777215;
+        let currentAutoColor = 16777215;
         let currentDist = 'even';
+        let currentAutoLoop = 'once';
         let fetchTimer = null;
         let scheduledTasks = []; // 客户端定时任务
         let taskTimers = {}; // taskId -> setTimeout handle
+        let autoSendTimer = null; // 自动循环发送定时器
+        let autoSendState = { running: false, index: 0, messages: [], successCount: 0, failCount: 0, totalSent: 0 };
 
         const COLORS = {
             "白色": 16777215, "红色": 65536, "蓝色": 16711680, "绿色": 65280,
@@ -601,7 +662,7 @@
         function switchTab(e, tab) {
             document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
             e.target.classList.add('active');
-            ['single','timed','batch','scheduled'].forEach(t => {
+            ['single','timed','batch','auto','scheduled'].forEach(t => {
                 document.getElementById('tab-' + t).classList.toggle('hidden', tab !== t);
             });
             if (tab === 'scheduled') renderTasks();
@@ -616,6 +677,7 @@
             else if (groupId === 'timed-mode-group') currentTimedMode = mode;
             else if (groupId === 'batch-mode-group') currentBatchMode = mode;
             else if (groupId === 'scheduled-mode-group') currentScheduledMode = mode;
+            else if (groupId === 'auto-mode-group') currentAutoMode = mode;
         }
 
         function selectDist(el) {
@@ -628,10 +690,12 @@
             const stateMap = {
                 single: 'currentColor', timed: 'currentTimedColor',
                 batch: 'currentBatchColor', scheduled: 'currentScheduledColor',
+                auto: 'currentAutoColor',
             };
             const gridMap = {
                 single: '#color-grid', timed: '#timed-color-grid',
                 batch: '#batch-color-grid', scheduled: '#scheduled-color-grid',
+                auto: '#auto-color-grid',
             };
             document.querySelectorAll(`${gridMap[type]} .color-option`).forEach(c => {
                 c.classList.remove('active');
@@ -769,6 +833,137 @@
                 }
             } catch (e) { showToast('网络错误', 'error'); }
             finally { btn.disabled = false; btn.innerHTML = orig; }
+        }
+
+        // ========== 自动循环发送 ==========
+        function selectAutoLoop(el) {
+            document.querySelectorAll('#auto-loop-group .dist-option').forEach(d => d.classList.remove('active'));
+            el.classList.add('active');
+            currentAutoLoop = el.dataset.loop;
+        }
+
+        function updateAutoProgress(html) {
+            document.getElementById('auto-progress-box').innerHTML = html;
+        }
+
+        async function startAutoSend() {
+            const creds = getCredentials();
+            if (!creds.sessdata || !creds.bili_jct) { showToast('请先保存 B站凭证', 'error'); return; }
+
+            const url = document.getElementById('video-url').value.trim();
+            const text = document.getElementById('auto-text').value.trim();
+            const interval = parseFloat(document.getElementById('auto-interval').value) || 10;
+            const progress = document.getElementById('auto-progress').value.trim() || '0:01';
+            if (!url || !text) { showToast('请填写视频链接和弹幕内容', 'error'); return; }
+
+            const messages = text.split('\n').map(s => s.trim()).filter(s => s);
+            if (messages.length === 0) { showToast('请输入至少一条弹幕', 'error'); return; }
+
+            autoSendState = {
+                running: true,
+                index: 0,
+                messages,
+                successCount: 0,
+                failCount: 0,
+                totalSent: 0,
+                url,
+                interval,
+                progress,
+            };
+
+            document.getElementById('auto-start-btn').style.display = 'none';
+            document.getElementById('auto-stop-btn').style.display = 'inline-flex';
+            updateAutoProgress('🚀 自动发送已启动，共 ' + messages.length + ' 条，间隔 ' + interval + ' 秒/条');
+
+            // 立即发送第一条
+            await autoSendOne();
+        }
+
+        async function autoSendOne() {
+            if (!autoSendState.running) return;
+
+            const creds = getCredentials();
+            const msg = autoSendState.messages[autoSendState.index];
+            const idx = autoSendState.index + 1;
+            const total = autoSendState.messages.length;
+
+            updateAutoProgress(`<span class="spinner"></span> 正在发送第 ${idx}/${total} 条: "${msg}"`);
+
+            try {
+                const resp = await fetch('/api/send', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        ...creds,
+                        url: autoSendState.url,
+                        text: msg,
+                        mode: currentAutoMode,
+                        color: currentAutoColor,
+                        progress: autoSendState.progress,
+                    }),
+                });
+                const data = await resp.json();
+                autoSendState.totalSent++;
+
+                if (data.success) {
+                    autoSendState.successCount++;
+                    addHistory({ text: msg, title: data.data?.title || autoSendState.url, progress_str: autoSendState.progress, time: new Date().toLocaleString('zh-CN') });
+                } else {
+                    autoSendState.failCount++;
+                }
+
+                let statusIcon = data.success ? '✅' : '❌';
+                let html = `${statusIcon} [${idx}/${total}] "${msg}" → ${data.message}<br>`;
+                html += `<span style="color:var(--text-tertiary); font-size:12px;">总计发送 ${autoSendState.totalSent} 条 · 成功 ${autoSendState.successCount} · 失败 ${autoSendState.failCount}</span><br>`;
+
+                // 下一条
+                autoSendState.index++;
+
+                if (autoSendState.index >= total) {
+                    if (currentAutoLoop === 'loop' && autoSendState.running) {
+                        html += `<span style="color:var(--bili-blue);">🔄 列表发完，从头循环... ${autoSendState.interval} 秒后继续</span>`;
+                        updateAutoProgress(html);
+                        autoSendState.index = 0;
+                        autoSendTimer = setTimeout(() => autoSendOne(), autoSendState.interval * 1000);
+                    } else {
+                        // 发完即止
+                        html += `<br><strong style="color:var(--success);">✅ 全部发送完成！成功 ${autoSendState.successCount}/${total} 条</strong>`;
+                        updateAutoProgress(html);
+                        stopAutoSend(true);
+                    }
+                } else {
+                    html += `<span style="color:var(--text-tertiary); font-size:12px;">⏳ ${autoSendState.interval} 秒后发送下一条...</span>`;
+                    updateAutoProgress(html);
+                    autoSendTimer = setTimeout(() => autoSendOne(), autoSendState.interval * 1000);
+                }
+            } catch (e) {
+                autoSendState.failCount++;
+                autoSendState.totalSent++;
+                updateAutoProgress(`❌ 第 ${idx}/${total} 条发送失败: 网络错误，${autoSendState.interval} 秒后重试...`);
+
+                autoSendState.index++;
+                if (autoSendState.index >= total) {
+                    if (currentAutoLoop === 'loop' && autoSendState.running) {
+                        autoSendState.index = 0;
+                    } else {
+                        stopAutoSend(true);
+                        return;
+                    }
+                }
+                autoSendTimer = setTimeout(() => autoSendOne(), autoSendState.interval * 1000);
+            }
+        }
+
+        function stopAutoSend(completed) {
+            autoSendState.running = false;
+            if (autoSendTimer) {
+                clearTimeout(autoSendTimer);
+                autoSendTimer = null;
+            }
+            document.getElementById('auto-start-btn').style.display = 'inline-flex';
+            document.getElementById('auto-stop-btn').style.display = 'none';
+            if (!completed) {
+                updateAutoProgress(`⏹️ 已停止。共发送 ${autoSendState.totalSent} 条 · 成功 ${autoSendState.successCount} · 失败 ${autoSendState.failCount}`);
+            }
         }
 
         // ========== 定时发送（客户端 setTimeout） ==========
@@ -991,11 +1186,16 @@
             const lines = this.value.split('\n').filter(s => s.trim()).length;
             document.getElementById('scheduled-count').textContent = `${lines} 条弹幕`;
         });
+        document.getElementById('auto-text').addEventListener('input', function() {
+            const lines = this.value.split('\n').filter(s => s.trim()).length;
+            document.getElementById('auto-count').textContent = `${lines} 条弹幕`;
+        });
 
         // ========== 初始化 ==========
         initColors('color-grid', 'single');
         initColors('timed-color-grid', 'timed');
         initColors('batch-color-grid', 'batch');
+        initColors('auto-color-grid', 'auto');
         initColors('scheduled-color-grid', 'scheduled');
         renderHistory();
 
