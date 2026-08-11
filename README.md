@@ -2,6 +2,8 @@
 
 指定视频发弹幕的工具，支持单条发送、时间段分布发送、批量发送、定时发送。
 
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/winccctan/bili-danmaku-agent)
+
 ## 功能
 
 - **单条发送** — 指定视频时间点发一条弹幕
