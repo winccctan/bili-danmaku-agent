@@ -2,6 +2,8 @@
 
 指定视频发弹幕的工具，支持单条发送、时间段分布发送、批量发送、定时发送。
 
+[![Deploy to Koyeb](https://www.koyeb.com/images/deploy/button.svg)](https://app.koyeb.com/deploy?type=git&builder=buildpack&repository=github.com/winccctan/bili-danmaku-agent&branch=main&name=bili-danmaku-agent&ports=5000;http;/&instance_type=nano)
+
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/winccctan/bili-danmaku-agent)
 
 ## 功能
