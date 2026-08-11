@@ -8,6 +8,7 @@ import time
 import random
 import re
 import requests
+import xml.etree.ElementTree as ET
 from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
 
@@ -299,6 +300,89 @@ def video_info():
     try:
         info = get_video_info(bvid)
         return jsonify({"success": True, "data": info})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)})
+
+
+@app.route("/api/danmaku-list", methods=["POST"])
+def danmaku_list():
+    """获取视频弹幕列表，验证弹幕是否发送成功"""
+    data = request.json or {}
+    url = data.get("url", "").strip()
+    if not url:
+        return jsonify({"success": False, "message": "请提供视频链接或 BV ID"})
+
+    bvid = extract_bvid(url)
+    if not bvid:
+        return jsonify({"success": False, "message": "无法解析 BV ID"})
+
+    try:
+        info = get_video_info(bvid)
+        cid = info["cid"]
+
+        dm_url = f"https://api.bilibili.com/x/v1/dm/list.so?oid={cid}"
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+            "Referer": f"https://www.bilibili.com/video/{bvid}",
+        }
+        resp = requests.get(dm_url, headers=headers, timeout=10)
+
+        # B站返回的是 gzip 压缩的 XML，requests 会自动解压
+        root = ET.fromstring(resp.content)
+
+        mode_map = {1: "滚动", 4: "顶部", 5: "底部", 6: "逆向", 7: "高级", 8: "代码", 9: "BAS"}
+        danmaku_items = []
+        for d in root.findall("d"):
+            p = d.get("p", "")
+            if not p:
+                continue
+            parts = p.split(",")
+            if len(parts) < 4:
+                continue
+
+            progress = float(parts[0])
+            mode = int(parts[1])
+            fontsize = int(parts[2])
+            color = int(parts[3])
+            ts = int(parts[4]) if len(parts) > 4 else 0
+            pool = int(parts[5]) if len(parts) > 5 else 0
+            user_hash = parts[6] if len(parts) > 6 else ""
+            dmid = parts[7] if len(parts) > 7 else ""
+
+            text = d.text or ""
+            danmaku_items.append({
+                "progress": progress,
+                "progress_str": format_time(int(progress)),
+                "mode": mode,
+                "mode_str": mode_map.get(mode, "其他"),
+                "color": color,
+                "color_hex": f"#{color:06x}",
+                "text": text,
+                "timestamp": ts,
+                "time_str": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ts)) if ts else "",
+                "pool": pool,
+                "dmid": dmid,
+            })
+
+        # 按视频时间排序
+        danmaku_items.sort(key=lambda x: x["progress"])
+
+        return jsonify({
+            "success": True,
+            "message": f"共 {len(danmaku_items)} 条弹幕",
+            "data": {
+                "video_info": {
+                    "bvid": info["bvid"],
+                    "title": info["title"],
+                    "duration": info.get("duration", 0),
+                    "owner_name": info.get("owner_name", ""),
+                },
+                "danmaku": danmaku_items,
+                "total": len(danmaku_items),
+            },
+        })
+    except ET.ParseError:
+        return jsonify({"success": False, "message": "解析弹幕 XML 失败，可能是 CID 错误或弹幕为空"})
     except Exception as e:
         return jsonify({"success": False, "message": str(e)})
 
