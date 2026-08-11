@@ -879,6 +879,8 @@
                 successCount: 0,
                 failCount: 0,
                 totalSent: 0,
+                consecutiveFails: 0,
+                pauseInterval: null,
                 url,
                 interval,
                 progress,
@@ -890,6 +892,23 @@
 
             // 立即发送第一条
             await autoSendOne();
+        }
+
+        // 暂停倒计时辅助函数
+        function startPauseCountdown(pauseSeconds, reason) {
+            if (autoSendState.pauseInterval) clearInterval(autoSendState.pauseInterval);
+            let remaining = pauseSeconds;
+            const updatePause = () => {
+                const el = document.getElementById('pause-countdown');
+                if (!el) return;
+                if (remaining <= 0) { clearInterval(autoSendState.pauseInterval); return; }
+                const mins = Math.floor(remaining / 60);
+                const secs = remaining % 60;
+                el.textContent = `⏸️ ${reason}，暂停等待中... 倒计时: ${mins}分${secs}秒`;
+            };
+            updatePause();
+            autoSendState.pauseInterval = setInterval(() => { remaining--; updatePause(); }, 1000);
+            return `<span id="pause-countdown" style="color:var(--error); font-size:13px;">⏸️ ${reason}，暂停等待中... 倒计时: ${Math.floor(pauseSeconds/60)}分${pauseSeconds%60}秒</span>`;
         }
 
         async function autoSendOne() {
@@ -919,9 +938,11 @@
 
                 if (data.success) {
                     autoSendState.successCount++;
+                    autoSendState.consecutiveFails = 0;
                     addHistory({ text: msg, title: data.data?.title || autoSendState.url, progress_str: autoSendState.progress, time: new Date().toLocaleString('zh-CN') });
                 } else {
                     autoSendState.failCount++;
+                    autoSendState.consecutiveFails = (autoSendState.consecutiveFails || 0) + 1;
                 }
 
                 let statusIcon = data.success ? '✅' : '❌';
@@ -931,6 +952,35 @@
                 // 下一条
                 autoSendState.index++;
 
+                // ====== 失败后暂停 2 分钟再继续（等待 B站频率限制解除） ======
+                if (!data.success && autoSendState.running) {
+                    // 连续失败 5 次自动停止，保护账号
+                    if (autoSendState.consecutiveFails >= 5) {
+                        html += `<br><strong style="color:var(--error);">⚠️ 连续失败 ${autoSendState.consecutiveFails} 次，自动停止以保护账号</strong>`;
+                        updateAutoProgress(html);
+                        stopAutoSend(true);
+                        return;
+                    }
+
+                    // 处理列表到末尾
+                    if (autoSendState.index >= total) {
+                        if (currentAutoLoop === 'loop') {
+                            autoSendState.index = 0;
+                        } else {
+                            stopAutoSend(true);
+                            return;
+                        }
+                    }
+
+                    const isRateLimit = data.data?.code === 36703;
+                    const reason = isRateLimit ? 'B站频率限制' : '发送失败';
+                    html += startPauseCountdown(120, reason);
+                    updateAutoProgress(html);
+                    autoSendTimer = setTimeout(() => autoSendOne(), 120 * 1000);
+                    return;
+                }
+
+                // ====== 成功后正常间隔继续 ======
                 if (autoSendState.index >= total) {
                     if (currentAutoLoop === 'loop' && autoSendState.running) {
                         html += `<span style="color:var(--bili-blue);">🔄 列表发完，从头循环... ${autoSendState.interval} 秒后继续</span>`;
@@ -951,7 +1001,17 @@
             } catch (e) {
                 autoSendState.failCount++;
                 autoSendState.totalSent++;
-                updateAutoProgress(`❌ 第 ${idx}/${total} 条发送失败: 网络错误，${autoSendState.interval} 秒后重试...`);
+                autoSendState.consecutiveFails = (autoSendState.consecutiveFails || 0) + 1;
+
+                // 连续失败 5 次自动停止
+                if (autoSendState.consecutiveFails >= 5) {
+                    updateAutoProgress(`<strong style="color:var(--error);">⚠️ 连续失败 ${autoSendState.consecutiveFails} 次，自动停止。共发送 ${autoSendState.totalSent} 条 · 成功 ${autoSendState.successCount} · 失败 ${autoSendState.failCount}</strong>`);
+                    stopAutoSend(true);
+                    return;
+                }
+
+                let html = `❌ [${idx}/${total}] "${msg}" → 网络错误<br>`;
+                html += `<span style="color:var(--text-tertiary); font-size:12px;">总计发送 ${autoSendState.totalSent} 条 · 成功 ${autoSendState.successCount} · 失败 ${autoSendState.failCount}</span><br>`;
 
                 autoSendState.index++;
                 if (autoSendState.index >= total) {
@@ -962,7 +1022,10 @@
                         return;
                     }
                 }
-                autoSendTimer = setTimeout(() => autoSendOne(), autoSendState.interval * 1000);
+
+                html += startPauseCountdown(120, '网络错误');
+                updateAutoProgress(html);
+                autoSendTimer = setTimeout(() => autoSendOne(), 120 * 1000);
             }
         }
 
@@ -971,6 +1034,10 @@
             if (autoSendTimer) {
                 clearTimeout(autoSendTimer);
                 autoSendTimer = null;
+            }
+            if (autoSendState.pauseInterval) {
+                clearInterval(autoSendState.pauseInterval);
+                autoSendState.pauseInterval = null;
             }
             document.getElementById('auto-start-btn').style.display = 'inline-flex';
             document.getElementById('auto-stop-btn').style.display = 'none';
