@@ -434,7 +434,7 @@
                         <div class="dist-option active" data-loop="once" onclick="selectAutoLoop(this)">发完即止</div>
                         <div class="dist-option" data-loop="loop" onclick="selectAutoLoop(this)">无限循环</div>
                     </div>
-                    <p class="hint">发完即止：列表发完自动停止 · 无限循环：发完从头开始继续</p>
+                    <p class="hint">发完即止：列表发完自动停止 · 无限循环：发完从头开始继续 · 失败自动跳过不停</p>
                 </div>
 
                 <div style="display:flex; gap:10px; align-items:center;">
@@ -935,21 +935,9 @@
             await autoSendOne();
         }
 
-        // 暂停倒计时辅助函数
+        // 暂停倒计时辅助函数（已弃用，保留以防外部引用）
         function startPauseCountdown(pauseSeconds, reason) {
-            if (autoSendState.pauseInterval) clearInterval(autoSendState.pauseInterval);
-            let remaining = pauseSeconds;
-            const updatePause = () => {
-                const el = document.getElementById('pause-countdown');
-                if (!el) return;
-                if (remaining <= 0) { clearInterval(autoSendState.pauseInterval); return; }
-                const mins = Math.floor(remaining / 60);
-                const secs = remaining % 60;
-                el.textContent = `⏸️ ${reason}，暂停等待中... 倒计时: ${mins}分${secs}秒`;
-            };
-            updatePause();
-            autoSendState.pauseInterval = setInterval(() => { remaining--; updatePause(); }, 1000);
-            return `<span id="pause-countdown" style="color:var(--error); font-size:13px;">⏸️ ${reason}，暂停等待中... 倒计时: ${Math.floor(pauseSeconds/60)}分${pauseSeconds%60}秒</span>`;
+            return `<span style="color:var(--text-tertiary); font-size:12px;">${reason}，继续发送中...</span>`;
         }
 
         async function autoSendOne() {
@@ -1013,10 +1001,11 @@
                     return true;
                 };
 
-                // ====== 36714(时间越界)：直接跳过，不暂停不算连续失败 ======
-                if (!data.success && data.data?.code === 36714 && autoSendState.running) {
-                    autoSendState.consecutiveFails = 0;  // 36714 不算连续失败
-                    html += `<span style="color:var(--warning, orange); font-size:12px;">⏭️ 时间越界，跳过这条，${autoSendState.interval} 秒后发下一条...</span>`;
+                // ====== 所有失败（36714/36703/网络错误等）：直接跳过，按正常间隔继续下一条 ======
+                if (!data.success && autoSendState.running) {
+                    const errCode = data.data?.code;
+                    const errTag = errCode === 36714 ? '时间越界' : errCode === 36703 ? '频率限制' : '发送失败';
+                    html += `<span style="color:var(--warning, orange); font-size:12px;">⏭️ ${errTag}，跳过这条，${autoSendState.interval} 秒后发下一条...</span>`;
                     updateAutoProgress(html);
                     if (!wrapIndex()) {
                         html += `<br><strong style="color:var(--success);">✅ 全部发送完成！成功 ${autoSendState.successCount}/${total} 条</strong>`;
@@ -1025,29 +1014,6 @@
                         return;
                     }
                     autoSendTimer = setTimeout(() => autoSendOne(), autoSendState.interval * 1000);
-                    return;
-                }
-
-                // ====== 其他失败(36703/网络错误)：暂停 2 分钟再继续 ======
-                if (!data.success && autoSendState.running) {
-                    // 连续失败 5 次自动停止，保护账号
-                    if (autoSendState.consecutiveFails >= 5) {
-                        html += `<br><strong style="color:var(--error);">⚠️ 连续失败 ${autoSendState.consecutiveFails} 次，自动停止以保护账号</strong>`;
-                        updateAutoProgress(html);
-                        stopAutoSend(true);
-                        return;
-                    }
-
-                    if (!wrapIndex()) {
-                        stopAutoSend(true);
-                        return;
-                    }
-
-                    const isRateLimit = data.data?.code === 36703;
-                    const reason = isRateLimit ? 'B站频率限制' : '发送失败';
-                    html += startPauseCountdown(120, reason);
-                    updateAutoProgress(html);
-                    autoSendTimer = setTimeout(() => autoSendOne(), 120 * 1000);
                     return;
                 }
 
@@ -1072,14 +1038,6 @@
             } catch (e) {
                 autoSendState.failCount++;
                 autoSendState.totalSent++;
-                autoSendState.consecutiveFails = (autoSendState.consecutiveFails || 0) + 1;
-
-                // 连续失败 5 次自动停止
-                if (autoSendState.consecutiveFails >= 5) {
-                    updateAutoProgress(`<strong style="color:var(--error);">⚠️ 连续失败 ${autoSendState.consecutiveFails} 次，自动停止。共发送 ${autoSendState.totalSent} 条 · 成功 ${autoSendState.successCount} · 失败 ${autoSendState.failCount}</strong>`);
-                    stopAutoSend(true);
-                    return;
-                }
 
                 let html = `❌ [${idx}/${total}] "${msg}" → 网络错误<br>`;
                 html += `<span style="color:var(--text-tertiary); font-size:12px;">总计发送 ${autoSendState.totalSent} 条 · 成功 ${autoSendState.successCount} · 失败 ${autoSendState.failCount}</span><br>`;
@@ -1089,14 +1047,16 @@
                     if (currentAutoLoop === 'loop' && autoSendState.running) {
                         autoSendState.index = 0;
                     } else {
+                        html += `<br><strong style="color:var(--success);">✅ 全部发送完成！成功 ${autoSendState.successCount}/${total} 条</strong>`;
+                        updateAutoProgress(html);
                         stopAutoSend(true);
                         return;
                     }
                 }
 
-                html += startPauseCountdown(120, '网络错误');
+                html += `<span style="color:var(--warning, orange); font-size:12px;">⏭️ 网络错误，跳过这条，${autoSendState.interval} 秒后发下一条...</span>`;
                 updateAutoProgress(html);
-                autoSendTimer = setTimeout(() => autoSendOne(), 120 * 1000);
+                autoSendTimer = setTimeout(() => autoSendOne(), autoSendState.interval * 1000);
             }
         }
 
