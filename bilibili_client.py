@@ -168,6 +168,9 @@ class BilibiliClient:
         if progress is None:
             progress = 1
 
+        # B站 API 的 progress 参数单位为毫秒，需要将秒转换为毫秒
+        progress_ms = int(progress) * 1000
+
         url = "https://api.bilibili.com/x/v2/dm/post"
         headers = {
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
@@ -180,7 +183,7 @@ class BilibiliClient:
             "oid": cid,
             "msg": text,
             "bvid": bvid,
-            "progress": progress,
+            "progress": progress_ms,
             "color": color,
             "fontsize": fontsize,
             "pool": pool,

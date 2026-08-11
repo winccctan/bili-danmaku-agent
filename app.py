@@ -142,12 +142,15 @@ def send_danmaku_api(
             "Origin": "https://www.bilibili.com",
         }
 
+        # B站 API 的 progress 参数单位为毫秒，需要将秒转换为毫秒
+        progress_ms = int(progress) * 1000
+
         payload = {
             "type": 1,
             "oid": cid,
             "msg": text,
             "bvid": bvid,
-            "progress": progress,
+            "progress": progress_ms,
             "color": color,
             "fontsize": fontsize,
             "pool": pool,
