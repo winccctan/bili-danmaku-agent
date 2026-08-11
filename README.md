@@ -2,7 +2,9 @@
 
 指定视频发弹幕的工具，支持单条发送、时间段分布发送、批量发送、定时发送。
 
-[![Deploy to Koyeb](https://www.koyeb.com/images/deploy/button.svg)](https://app.koyeb.com/deploy?type=git&builder=buildpack&repository=github.com/winccctan/bili-danmaku-agent&branch=main&name=bili-danmaku-agent&ports=5000;http;/&instance_type=nano)
+> **2026-08 更新**：Koyeb 已并入 Mistral，停止新部署。改用 SnapDeploy（免费、无需信用卡）或 Render（需信用卡验证）。
+
+[![Deploy to SnapDeploy](https://img.shields.io/badge/Deploy_to_SnapDeploy-2E7D32?style=for-the-badge&logo=docker&logoColor=white)](https://snapdeploy.dev/register)
 
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/winccctan/bili-danmaku-agent)
 
@@ -25,21 +27,34 @@ python app.py
 
 ## 云端部署
 
-### 方式一：Render（推荐，免费）
+### 方式一：SnapDeploy（免费、无需信用卡）
 
-1. 将项目推送到 GitHub 仓库
-2. 打开 https://render.com → New → Web Service
-3. 连接 GitHub 仓库
+1. 打开 https://snapdeploy.dev/register → 用 GitHub 注册（不需要信用卡）
+2. 登录后点 **New Container** → **Deploy from GitHub**
+3. 授权 GitHub，选择 `winccctan/bili-danmaku-agent` 仓库
 4. 配置：
+   - **Container Name**: `bili-danmaku-agent`
+   - **Port**: `5000`
+   - **Environment Variables**: 无需额外配置
+5. 点 **Deploy**，等 2-3 分钟
+6. 获得 `https://xxx.containers.snapdeploy.dev` 域名
+
+> SnapDeploy 免费层包含 100 小时容器时长（永久有效），空闲 15 分钟后自动休眠，访问时约 60 秒唤醒。
+
+### 方式二：Render（免费，需信用卡验证）
+
+1. 打开 https://render.com → New → Web Service
+2. 连接 GitHub 仓库
+3. 配置：
    - **Runtime**: Python 3
    - **Build Command**: `pip install -r requirements.txt`
    - **Start Command**: `gunicorn --bind 0.0.0.0:$PORT --workers 2 --timeout 120 app:app`
-5. 点击 Create Web Service
-6. 等待部署完成，获得 `https://xxx.onrender.com` 域名
+4. 点击 Create Web Service
+5. 等待部署完成，获得 `https://xxx.onrender.com` 域名
 
 项目已包含 `render.yaml`，也可用 Blueprint 方式部署。
 
-### 方式二：Railway
+### 方式三：Railway
 
 1. 打开 https://railway.app → New Project → Deploy from GitHub
 2. 选择仓库，Railway 自动检测 Python 项目
