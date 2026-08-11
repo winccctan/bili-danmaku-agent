@@ -126,13 +126,15 @@ def send_danmaku_api(
     pool: int = 0,
     progress: int = 1,
     retry_on_rate_limit: bool = False,
+    retry_on_time_exceed: bool = True,
     max_retries: int = 2,
     rate_limit_wait: float = 10.0,
 ) -> dict:
     """发送弹幕到指定视频
-    
+
     Args:
-        retry_on_rate_limit: 遇到频率限制时是否自动等待重试
+        retry_on_rate_limit: 遇到频率限制(36703)时是否自动等待重试
+        retry_on_time_exceed: 遇到时间越界(36714)时是否自动用 progress=1 重试一次
         max_retries: 最大重试次数
         rate_limit_wait: 遇到限流时等待秒数
     """
@@ -145,9 +147,9 @@ def send_danmaku_api(
         cid = video_info["cid"]
         video_duration = video_info.get("duration", 0)
 
-        # 自动限制 progress 不超过视频时长（留 1 秒余量）
+        # 自动限制 progress 不超过视频时长（留 2 秒余量，更保守）
         if video_duration > 0 and progress >= video_duration:
-            progress = max(1, video_duration - 1)
+            progress = max(1, video_duration - 2)
 
         url = "https://api.bilibili.com/x/v2/dm/post"
         headers = {
@@ -158,6 +160,10 @@ def send_danmaku_api(
 
         # B站 API 的 progress 参数单位为毫秒，需要将秒转换为毫秒
         progress_ms = int(progress) * 1000
+
+        # 标记是否已因 36714 重试过（只重试一次）
+        _retried_36714 = False
+        _original_progress = progress
 
         payload = {
             "type": 1,
@@ -180,7 +186,7 @@ def send_danmaku_api(
             if data["code"] == 0:
                 return {
                     "success": True,
-                    "message": "弹幕发送成功！",
+                    "message": "弹幕发送成功！" + (" (已自动重试)" if _retried_36714 else ""),
                     "data": {
                         "bvid": bvid,
                         "title": video_info["title"],
@@ -197,12 +203,25 @@ def send_danmaku_api(
                 payload["rnd"] = int(time.time())  # 刷新 rnd
                 continue
 
+            # 时间越界 (code=36714) 且允许重试且还没重试过
+            # B站 API 有时对接近视频末尾的进度返回 36714，
+            # 用最安全的 progress=1 (1000ms) 重试一次
+            if data["code"] == 36714 and retry_on_time_exceed and not _retried_36714:
+                _retried_36714 = True
+                progress = 1
+                progress_ms = 1000
+                payload["progress"] = progress_ms
+                payload["rnd"] = int(time.time())
+                continue
+
             # 其他错误或重试次数用完
             if data["code"] == 36703:
                 msg = f"发送频率过快，B站限制了发送 (code=36703)。请等待 1-2 分钟后再试"
             elif data["code"] == 36714:
-                dur_str = f"视频时长仅 {video_duration} 秒" if video_duration else "未知视频时长"
-                msg = f"弹幕时间点超过视频时长 (code=36714)。{dur_str}，请将时间点设为视频时长以内"
+                dur_str = f"视频时长 {video_duration} 秒" if video_duration else "未知视频时长"
+                msg = (f"弹幕时间点异常 (code=36714)。{dur_str}，"
+                       f"原始进度 {_original_progress} 秒({int(_original_progress)*1000}ms)，"
+                       f"已尝试用 1 秒重试仍失败")
             else:
                 msg = f"发送失败: {data.get('message', '未知错误')} (code={data['code']})"
             return {
