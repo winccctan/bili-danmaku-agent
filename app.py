@@ -284,6 +284,137 @@ def video_info():
         return jsonify({"success": False, "message": str(e)})
 
 
+def _read_varint(data: bytes, offset: int) -> tuple:
+    """读取 protobuf varint，返回 (value, new_offset)"""
+    result = 0
+    shift = 0
+    while offset < len(data):
+        byte = data[offset]
+        result |= (byte & 0x7F) << shift
+        offset += 1
+        if not (byte & 0x80):
+            break
+        shift += 7
+    return result, offset
+
+
+def _parse_danmaku_protobuf(data: bytes) -> list:
+    """解析 B站 seg.so protobuf 弹幕数据
+
+    DanmakuElem 结构:
+      field 1 (varint): id
+      field 2 (varint): progress (毫秒)
+      field 3 (varint): mode
+      field 4 (varint): fontsize
+      field 5 (varint): color
+      field 6 (string): midHash
+      field 7 (string): content
+      field 8 (varint): ctime
+      field 9 (varint): weight
+      field 10 (string): action
+      field 11 (varint): pool
+      field 12 (string): idStr
+    """
+    items = []
+    offset = 0
+    while offset < len(data):
+        # 读外层 tag (field 1, wire type 2 = length-delimited)
+        tag, offset = _read_varint(data, offset)
+        field_num = tag >> 3
+        wire_type = tag & 0x07
+
+        if wire_type == 2:
+            # length-delimited
+            length, offset = _read_varint(data, offset)
+            elem_data = data[offset:offset + length]
+            offset += length
+
+            if field_num == 1:
+                # 这是一个 DanmakuElem
+                item = _parse_single_danmaku(elem_data)
+                if item:
+                    items.append(item)
+        elif wire_type == 0:
+            # varint - skip
+            _, offset = _read_varint(data, offset)
+        elif wire_type == 5:
+            # 32-bit - skip
+            offset += 4
+        elif wire_type == 1:
+            # 64-bit - skip
+            offset += 8
+        else:
+            break
+
+    return items
+
+
+def _parse_single_danmaku(data: bytes) -> dict:
+    """解析单个 DanmakuElem"""
+    result = {
+        "id": 0,
+        "progress": 0,  # 毫秒
+        "mode": 1,
+        "fontsize": 25,
+        "color": 16777215,
+        "midHash": "",
+        "content": "",
+        "ctime": 0,
+        "pool": 0,
+        "idStr": "",
+    }
+    offset = 0
+    while offset < len(data):
+        tag, offset = _read_varint(data, offset)
+        field_num = tag >> 3
+        wire_type = tag & 0x07
+
+        if wire_type == 0:
+            # varint
+            value, offset = _read_varint(data, offset)
+            if field_num == 1:
+                result["id"] = value
+            elif field_num == 2:
+                result["progress"] = value  # 毫秒
+            elif field_num == 3:
+                result["mode"] = value
+            elif field_num == 4:
+                result["fontsize"] = value
+            elif field_num == 5:
+                result["color"] = value
+            elif field_num == 8:
+                result["ctime"] = value
+            elif field_num == 9:
+                pass  # weight, 忽略
+            elif field_num == 11:
+                result["pool"] = value
+        elif wire_type == 2:
+            # length-delimited
+            length, offset = _read_varint(data, offset)
+            value = data[offset:offset + length]
+            offset += length
+            try:
+                text = value.decode("utf-8")
+            except UnicodeDecodeError:
+                text = value.decode("utf-8", errors="replace")
+            if field_num == 6:
+                result["midHash"] = text
+            elif field_num == 7:
+                result["content"] = text
+            elif field_num == 10:
+                pass  # action, 忽略
+            elif field_num == 12:
+                result["idStr"] = text
+        elif wire_type == 5:
+            offset += 4
+        elif wire_type == 1:
+            offset += 8
+        else:
+            break
+
+    return result
+
+
 @app.route("/api/danmaku-list", methods=["POST"])
 def danmaku_list():
     """获取视频弹幕列表，验证弹幕是否发送成功"""
@@ -299,50 +430,82 @@ def danmaku_list():
     try:
         info = get_video_info(bvid)
         cid = info["cid"]
+        duration = info.get("duration", 0)
 
-        dm_url = f"https://api.bilibili.com/x/v1/dm/list.so?oid={cid}"
         headers = {
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
             "Referer": f"https://www.bilibili.com/video/{bvid}",
         }
-        resp = requests.get(dm_url, headers=headers, timeout=10)
-
-        # B站返回的是 gzip 压缩的 XML，requests 会自动解压
-        root = ET.fromstring(resp.content)
 
         mode_map = {1: "滚动", 4: "顶部", 5: "底部", 6: "逆向", 7: "高级", 8: "代码", 9: "BAS"}
         danmaku_items = []
-        for d in root.findall("d"):
-            p = d.get("p", "")
-            if not p:
-                continue
-            parts = p.split(",")
-            if len(parts) < 4:
+
+        # 使用新的 protobuf API (seg.so)，每个 segment 覆盖 6 分钟
+        # 根据视频时长计算需要的 segment 数量
+        num_segments = max(1, (duration // 360) + 1) if duration > 0 else 1
+        # 限制最多拉 10 个 segment（60 分钟），避免请求太多
+        num_segments = min(num_segments, 10)
+
+        for seg_idx in range(1, num_segments + 1):
+            dm_url = f"https://api.bilibili.com/x/v2/dm/web/seg.so?type=1&oid={cid}&segment_index={seg_idx}"
+            try:
+                resp = requests.get(dm_url, headers=headers, timeout=10)
+                if resp.status_code != 200 or len(resp.content) < 10:
+                    continue
+                parsed = _parse_danmaku_protobuf(resp.content)
+                for item in parsed:
+                    if not item["content"]:
+                        continue
+                    # progress 是毫秒，转成秒
+                    progress_sec = item["progress"] / 1000.0
+                    danmaku_items.append({
+                        "progress": progress_sec,
+                        "progress_str": format_time(int(progress_sec)),
+                        "mode": item["mode"],
+                        "mode_str": mode_map.get(item["mode"], "其他"),
+                        "color": item["color"],
+                        "color_hex": f"#{item['color']:06x}",
+                        "text": item["content"],
+                        "timestamp": item["ctime"],
+                        "time_str": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(item["ctime"])) if item["ctime"] else "",
+                        "pool": item["pool"],
+                        "dmid": item.get("idStr", ""),
+                    })
+            except Exception:
                 continue
 
-            progress = float(parts[0])
-            mode = int(parts[1])
-            fontsize = int(parts[2])
-            color = int(parts[3])
-            ts = int(parts[4]) if len(parts) > 4 else 0
-            pool = int(parts[5]) if len(parts) > 5 else 0
-            user_hash = parts[6] if len(parts) > 6 else ""
-            dmid = parts[7] if len(parts) > 7 else ""
-
-            text = d.text or ""
-            danmaku_items.append({
-                "progress": progress,
-                "progress_str": format_time(int(progress)),
-                "mode": mode,
-                "mode_str": mode_map.get(mode, "其他"),
-                "color": color,
-                "color_hex": f"#{color:06x}",
-                "text": text,
-                "timestamp": ts,
-                "time_str": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ts)) if ts else "",
-                "pool": pool,
-                "dmid": dmid,
-            })
+        # 如果新 API 没拉到数据，回退到旧 XML API
+        if not danmaku_items:
+            dm_url = f"https://api.bilibili.com/x/v1/dm/list.so?oid={cid}"
+            resp = requests.get(dm_url, headers=headers, timeout=10)
+            root = ET.fromstring(resp.content)
+            for d in root.findall("d"):
+                p = d.get("p", "")
+                if not p:
+                    continue
+                parts = p.split(",")
+                if len(parts) < 4:
+                    continue
+                progress = float(parts[0])
+                mode = int(parts[1])
+                color = int(parts[3])
+                ts = int(parts[4]) if len(parts) > 4 else 0
+                pool = int(parts[5]) if len(parts) > 5 else 0
+                dmid = parts[7] if len(parts) > 7 else ""
+                text = d.text or ""
+                danmaku_items.append({
+                    "progress": progress,
+                    "progress_str": format_time(int(progress)),
+                    "mode": mode,
+                    "mode_str": mode_map.get(mode, "其他"),
+                    "color": color,
+                    "color_hex": f"#{color:06x}",
+                    "text": text,
+                    "timestamp": ts,
+                    "time_str": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ts)) if ts else "",
+                    "pool": pool,
+                    "dmid": dmid,
+                })
 
         # 按视频时间排序
         danmaku_items.sort(key=lambda x: x["progress"])
@@ -362,7 +525,7 @@ def danmaku_list():
             },
         })
     except ET.ParseError:
-        return jsonify({"success": False, "message": "解析弹幕 XML 失败，可能是 CID 错误或弹幕为空"})
+        return jsonify({"success": False, "message": "解析弹幕数据失败，可能是 CID 错误或弹幕为空"})
     except Exception as e:
         return jsonify({"success": False, "message": str(e)})
 
