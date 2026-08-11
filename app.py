@@ -104,6 +104,14 @@ def get_video_info(bvid: str, session: requests.Session = None) -> dict:
         raise ValueError(f"获取视频信息失败: {data.get('message', '未知错误')} (code={data['code']})")
 
     d = data["data"]
+    pages = []
+    for p in d.get("pages", []):
+        pages.append({
+            "cid": p["cid"],
+            "page": p.get("page", 1),
+            "part": p.get("part", ""),
+            "duration": p.get("duration", 0),
+        })
     return {
         "bvid": d["bvid"],
         "aid": d["aid"],
@@ -113,6 +121,7 @@ def get_video_info(bvid: str, session: requests.Session = None) -> dict:
         "owner_name": d.get("owner", {}).get("name", ""),
         "owner_mid": d.get("owner", {}).get("mid", 0),
         "duration": d.get("duration", 0),
+        "pages": pages,
     }
 
 
@@ -126,6 +135,7 @@ def send_danmaku_api(
     fontsize: int = 25,
     pool: int = 0,
     progress: int = 1,
+    page: int = 1,
     retry_on_rate_limit: bool = False,
     max_retries: int = 2,
     rate_limit_wait: float = 10.0,
@@ -141,17 +151,34 @@ def send_danmaku_api(
     session = make_session(sessdata, bili_jct)
     try:
         video_info = get_video_info(bvid, session)
-        cid = video_info["cid"]
-        video_duration = video_info.get("duration", 0)
+        pages = video_info.get("pages", [])
 
-        # 发送前预检：如果时间点超过视频时长，直接返回，不发请求
+        # 根据 page 参数选择对应的分P
+        if pages and len(pages) > 1:
+            target_page = None
+            for p in pages:
+                if p["page"] == page:
+                    target_page = p
+                    break
+            if not target_page:
+                target_page = pages[0]
+            cid = target_page["cid"]
+            video_duration = target_page.get("duration", 0)
+            page_title = target_page.get("part", f"P{page}")
+        else:
+            cid = video_info["cid"]
+            video_duration = video_info.get("duration", 0)
+            page_title = ""
+
+        # 发送前预检：如果时间点超过当前分P时长，直接返回，不发请求
         if video_duration > 0 and progress > video_duration:
+            page_hint = f"，当前分P: {page_title}" if page_title else ""
             return {
                 "success": False,
-                "message": (f"时间点 {format_time(progress)}({progress}秒) 超过视频时长 "
-                            f"{format_time(video_duration)}({video_duration}秒)。"
-                            f"请将时间点设为视频时长以内"),
-                "data": {"code": 36714, "video_duration": video_duration, "progress": progress},
+                "message": (f"时间点 {format_time(progress)}({progress}秒) 超过当前分P时长 "
+                            f"{format_time(video_duration)}({video_duration}秒){page_hint}。"
+                            f"请检查是否选错了分P，或减小时间点"),
+                "data": {"code": 36714, "video_duration": video_duration, "progress": progress, "page": page},
             }
 
         url = "https://api.bilibili.com/x/v2/dm/post"
@@ -194,17 +221,20 @@ def send_danmaku_api(
                         "mode": mode,
                         "color": color,
                         "progress": progress,
+                        "page": page,
+                        "page_title": page_title,
                     },
                 }
 
             # 36714(时间越界) 直接返回，不重试（重试同样时间没意义）
             if data["code"] == 36714:
-                dur_str = f"视频时长 {format_time(video_duration)}({video_duration}秒)" if video_duration else "未知视频时长"
+                dur_str = f"当前分P时长 {format_time(video_duration)}({video_duration}秒)" if video_duration else "未知时长"
+                page_hint = f"，当前分P: {page_title}" if page_title else ""
                 return {
                     "success": False,
                     "message": (f"B站返回时间越界 (code=36714)。你设的时间点 {format_time(progress)}({progress}秒)，"
-                                f"{dur_str}。如果时间没超，可能是B站实际媒体时长略短于元数据"),
-                    "data": {"code": 36714, "video_duration": video_duration, "progress": progress},
+                                f"{dur_str}{page_hint}。请检查是否选错了分P，或时间点超过该分P的实际时长"),
+                    "data": {"code": 36714, "video_duration": video_duration, "progress": progress, "page": page, "page_title": page_title},
                 }
 
             # 频率限制 (36703)：等待后用同样的时间重试
@@ -444,8 +474,23 @@ def danmaku_list():
 
     try:
         info = get_video_info(bvid)
-        cid = info["cid"]
-        duration = info.get("duration", 0)
+        page = int(data.get("page", 1))
+        pages = info.get("pages", [])
+
+        # 根据分P选择对应的 CID 和 duration
+        if pages and len(pages) > 1:
+            target_page = None
+            for p in pages:
+                if p["page"] == page:
+                    target_page = p
+                    break
+            if not target_page:
+                target_page = pages[0]
+            cid = target_page["cid"]
+            duration = target_page.get("duration", 0)
+        else:
+            cid = info["cid"]
+            duration = info.get("duration", 0)
 
         headers = {
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
@@ -554,6 +599,7 @@ def send_single():
     mode = int(data.get("mode", 1))
     color = int(data.get("color", 16777215))
     progress_raw = data.get("progress", "1")
+    page = int(data.get("page", 1))
 
     if isinstance(progress_raw, str) and ":" in progress_raw:
         progress = parse_time_string(progress_raw)
@@ -568,7 +614,7 @@ def send_single():
         return jsonify({"success": False, "message": "无法解析 BV ID"})
 
     result = send_danmaku_api(sessdata, bili_jct, bvid, text, mode, color, progress=progress,
-                              retry_on_rate_limit=True, max_retries=2, rate_limit_wait=10.0)
+                              page=page, retry_on_rate_limit=True, max_retries=2, rate_limit_wait=10.0)
     return jsonify(result)
 
 
@@ -584,6 +630,7 @@ def send_batch():
     color = int(data.get("color", 16777215))
     interval = float(data.get("interval", 2.0))
     progress_raw = data.get("progress", "1")
+    page = int(data.get("page", 1))
     if isinstance(progress_raw, str) and ":" in progress_raw:
         progress = parse_time_string(progress_raw)
     else:
@@ -599,7 +646,7 @@ def send_batch():
     results = []
     for i, msg in enumerate(messages):
         result = send_danmaku_api(sessdata, bili_jct, bvid, msg, mode, color, progress=progress,
-                                  retry_on_rate_limit=True, max_retries=2, rate_limit_wait=10.0)
+                                  page=page, retry_on_rate_limit=True, max_retries=2, rate_limit_wait=10.0)
         result["index"] = i + 1
         result["total"] = len(messages)
         results.append(result)
@@ -626,6 +673,7 @@ def send_timed():
     color = int(data.get("color", 16777215))
     distribution = data.get("distribution", "even")
     send_interval = float(data.get("send_interval", 2.0))
+    page = int(data.get("page", 1))
 
     time_start = parse_time_string(data.get("time_start", "0:00"))
     time_end = parse_time_string(data.get("time_end", "1:00"))
@@ -656,7 +704,7 @@ def send_timed():
             progress = min(time_start + i, time_end)
 
         result = send_danmaku_api(sessdata, bili_jct, bvid, msg, mode, color, progress=progress,
-                                  retry_on_rate_limit=True, max_retries=2, rate_limit_wait=10.0)
+                                  page=page, retry_on_rate_limit=True, max_retries=2, rate_limit_wait=10.0)
         result["index"] = i + 1
         result["total"] = count
         result["progress"] = progress

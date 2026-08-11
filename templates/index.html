@@ -563,6 +563,8 @@
         let autoSendTimer = null; // 自动循环发送定时器
         let autoSendState = { running: false, index: 0, messages: [], successCount: 0, failCount: 0, totalSent: 0 };
         let videoDuration = 0; // 视频时长（秒），用于限制 progress
+        let videoPages = []; // 分P列表
+        let selectedPage = 1; // 当前选择的分P
 
         const COLORS = {
             "白色": 16777215, "红色": 65536, "蓝色": 16711680, "绿色": 65280,
@@ -660,21 +662,37 @@
             try {
                 const resp = await fetch('/api/video-info', {
                     method: 'POST', headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ url }),
+                    body: JSON.stringify({ url, page: selectedPage }),
                 });
                 const data = await resp.json();
                 if (data.success) {
                     const v = data.data;
-                    videoDuration = v.duration || 0; // 存储视频时长
-                    updateProgressHints(); // 更新时间提示
+                    videoPages = v.pages || [];
+                    // 根据分P更新时长
+                    if (videoPages.length > 1) {
+                        selectedPage = Math.min(selectedPage, videoPages.length);
+                        const pg = videoPages.find(p => p.page === selectedPage) || videoPages[0];
+                        videoDuration = pg.duration || v.duration || 0;
+                    } else {
+                        selectedPage = 1;
+                        videoDuration = v.duration || 0;
+                    }
+                    updateProgressHints();
                     const box = document.getElementById('video-info-box');
                     box.className = 'video-info';
+                    let pagesHtml = '';
+                    if (videoPages.length > 1) {
+                        pagesHtml = `<select id="page-selector" onchange="onPageChange(this.value)" style="margin-top:6px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;font-size:13px;max-width:100%;">
+                            ${videoPages.map(p => `<option value="${p.page}" ${p.page === selectedPage ? 'selected' : ''}>P${p.page}: ${p.part || '未命名'} (${formatDuration(p.duration)})</option>`).join('')}
+                        </select>`;
+                    }
                     box.innerHTML = `
                         ${v.cover ? `<img src="${v.cover}" alt="封面" onerror="this.style.display='none'">` : ''}
                         <div class="info">
                             <h3>${v.title}</h3>
                             <p>UP主: ${v.owner_name}</p>
-                            <p class="meta">${v.bvid} · 时长: ${formatDuration(v.duration)} · CID: ${v.cid}</p>
+                            <p class="meta">${v.bvid} · 时长: ${formatDuration(videoDuration)}${videoPages.length > 1 ? ` (共${videoPages.length}P)` : ''} · CID: ${v.cid}</p>
+                            ${pagesHtml}
                         </div>
                     `;
                 } else {
@@ -695,12 +713,28 @@
         function updateProgressHints() {
             if (videoDuration > 0) {
                 const maxStr = formatDuration(videoDuration);
-                const hint = `支持 分:秒 格式（如 1:30）或直接输入秒数（如 90）| 视频时长: ${maxStr}，超过将自动截断`;
+                const hint = `支持 分:秒 格式（如 1:30）或直接输入秒数（如 90）| 当前分P时长: ${maxStr}`;
                 const ph = document.getElementById('progress-hint');
                 if (ph) ph.textContent = hint;
                 // 自动循环 Tab 也显示时长
                 const autoHint = document.getElementById('auto-duration-hint');
-                if (autoHint) autoHint.textContent = `(视频时长: ${maxStr})`;
+                if (autoHint) autoHint.textContent = `(当前分P时长: ${maxStr})`;
+            }
+        }
+
+        function onPageChange(val) {
+            selectedPage = parseInt(val);
+            if (videoPages.length > 0) {
+                const pg = videoPages.find(p => p.page === selectedPage);
+                if (pg) {
+                    videoDuration = pg.duration;
+                    updateProgressHints();
+                    const meta = document.querySelector('#video-info-box .meta');
+                    if (meta) {
+                        const v = meta.textContent;
+                        meta.textContent = `${v.split(' · ')[0]} · 时长: ${formatDuration(videoDuration)} (共${videoPages.length}P) · CID: ${pg.cid}`;
+                    }
+                }
             }
         }
 
@@ -770,7 +804,7 @@
             try {
                 const resp = await fetch('/api/send', {
                     method: 'POST', headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ ...creds, url, text, mode: currentMode, color: currentColor, progress }),
+                    body: JSON.stringify({ ...creds, url, text, mode: currentMode, color: currentColor, progress, page: selectedPage }),
                 });
                 const data = await resp.json();
                 const resultBox = document.getElementById('send-result');
@@ -810,7 +844,7 @@
                     body: JSON.stringify({
                         ...creds, url, messages, mode: currentTimedMode, color: currentTimedColor,
                         time_start: timeStart, time_end: timeEnd,
-                        distribution: currentDist, send_interval: sendInterval,
+                        distribution: currentDist, send_interval: sendInterval, page: selectedPage,
                     }),
                 });
                 const data = await resp.json();
@@ -860,7 +894,7 @@
             try {
                 const resp = await fetch('/api/send-batch', {
                     method: 'POST', headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ ...creds, url, messages, mode: currentBatchMode, color: currentBatchColor, interval, progress }),
+                    body: JSON.stringify({ ...creds, url, messages, mode: currentBatchMode, color: currentBatchColor, interval, progress, page: selectedPage }),
                 });
                 const data = await resp.json();
                 const resultBox = document.getElementById('send-result');
@@ -966,6 +1000,7 @@
                         mode: currentAutoMode,
                         color: currentAutoColor,
                         progress: autoSendState.progress,
+                        page: selectedPage,
                     }),
                 });
                 const data = await resp.json();
@@ -1154,6 +1189,7 @@
                         mode: task.mode,
                         color: task.color,
                         interval: task.send_interval,
+                        page: selectedPage,
                     }),
                 });
                 const data = await resp.json();
@@ -1279,7 +1315,7 @@
             try {
                 const resp = await fetch('/api/danmaku-list', {
                     method: 'POST', headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ url }),
+                    body: JSON.stringify({ url, page: selectedPage }),
                 });
                 const data = await resp.json();
 
@@ -1380,9 +1416,9 @@
             let html = `解析结果: ${formatted} (${sec}秒)`;
             if (videoDuration > 0) {
                 if (sec > videoDuration) {
-                    html += ` — <strong style="color:var(--error);">⚠️ 超过视频时长 ${formatTimeShort(videoDuration)}！</strong>`;
+                    html += ` — <strong style="color:var(--error);">⚠️ 超过当前分P时长 ${formatTimeShort(videoDuration)}！</strong>`;
                 } else {
-                    html += ` — 视频时长 ${formatTimeShort(videoDuration)}`;
+                    html += ` — 当前分P时长 ${formatTimeShort(videoDuration)}`;
                 }
             }
             html += '<br>格式：秒数(如 90) 或 分:秒(如 1:30) 或 时:分:秒(如 1:02:30)';
