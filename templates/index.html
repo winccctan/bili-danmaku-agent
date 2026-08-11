@@ -969,7 +969,6 @@
                 if (data.success) {
                     autoSendState.successCount++;
                     autoSendState.consecutiveFails = 0;
-                    // 显示实际发送的时间点（可能被 B站 36714 调整过）
                     const actualProgress = data.data?.progress;
                     const progressStr = actualProgress != null ? formatTimeShort(actualProgress) : autoSendState.progress;
                     addHistory({ text: msg, title: data.data?.title || autoSendState.url, progress_str: progressStr, time: new Date().toLocaleString('zh-CN') });
@@ -985,7 +984,34 @@
                 // 下一条
                 autoSendState.index++;
 
-                // ====== 失败后暂停 2 分钟再继续（等待 B站频率限制解除） ======
+                // 处理列表到末尾
+                const wrapIndex = () => {
+                    if (autoSendState.index >= total) {
+                        if (currentAutoLoop === 'loop') {
+                            autoSendState.index = 0;
+                        } else {
+                            return false;
+                        }
+                    }
+                    return true;
+                };
+
+                // ====== 36714(时间越界)：直接跳过，不暂停不算连续失败 ======
+                if (!data.success && data.data?.code === 36714 && autoSendState.running) {
+                    autoSendState.consecutiveFails = 0;  // 36714 不算连续失败
+                    html += `<span style="color:var(--warning, orange); font-size:12px;">⏭️ 时间越界，跳过这条，${autoSendState.interval} 秒后发下一条...</span>`;
+                    updateAutoProgress(html);
+                    if (!wrapIndex()) {
+                        html += `<br><strong style="color:var(--success);">✅ 全部发送完成！成功 ${autoSendState.successCount}/${total} 条</strong>`;
+                        updateAutoProgress(html);
+                        stopAutoSend(true);
+                        return;
+                    }
+                    autoSendTimer = setTimeout(() => autoSendOne(), autoSendState.interval * 1000);
+                    return;
+                }
+
+                // ====== 其他失败(36703/网络错误)：暂停 2 分钟再继续 ======
                 if (!data.success && autoSendState.running) {
                     // 连续失败 5 次自动停止，保护账号
                     if (autoSendState.consecutiveFails >= 5) {
@@ -995,14 +1021,9 @@
                         return;
                     }
 
-                    // 处理列表到末尾
-                    if (autoSendState.index >= total) {
-                        if (currentAutoLoop === 'loop') {
-                            autoSendState.index = 0;
-                        } else {
-                            stopAutoSend(true);
-                            return;
-                        }
+                    if (!wrapIndex()) {
+                        stopAutoSend(true);
+                        return;
                     }
 
                     const isRateLimit = data.data?.code === 36703;

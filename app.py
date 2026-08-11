@@ -132,7 +132,8 @@ def send_danmaku_api(
 ) -> dict:
     """发送弹幕到指定视频，严格使用用户指定的时间点，绝不自动调整
 
-    36703(频率限制) 和 36714(时间越界) 都会重试，但 progress 永远不变。
+    36703(频率限制) 会等待后重试，progress 永远不变。
+    36714(时间越界) 直接返回不重试，让前端快速跳过继续下一条。
     """
     if not sessdata or not bili_jct:
         return {"success": False, "message": "缺少认证信息，请先设置 SESSDATA 和 bili_jct"}
@@ -185,15 +186,18 @@ def send_danmaku_api(
                     },
                 }
 
+            # 36714(时间越界) 直接返回，不重试（重试同样时间没意义）
+            if data["code"] == 36714:
+                dur_str = f"视频时长 {format_time(video_duration)}" if video_duration else "未知视频时长"
+                return {
+                    "success": False,
+                    "message": f"弹幕时间点 {format_time(progress)} 被B站拒绝 (code=36714)。{dur_str}",
+                    "data": {"code": 36714},
+                }
+
             # 频率限制 (36703)：等待后用同样的时间重试
             if data["code"] == 36703 and retry_on_rate_limit and attempt < max_retries:
                 time.sleep(rate_limit_wait)
-                payload["rnd"] = int(time.time())
-                continue
-
-            # 时间越界 (36714)：等 3 秒后用同样的时间重试（可能是 B站临时误判）
-            if data["code"] == 36714 and attempt < max_retries:
-                time.sleep(3)
                 payload["rnd"] = int(time.time())
                 continue
 
@@ -201,8 +205,7 @@ def send_danmaku_api(
             if data["code"] == 36703:
                 msg = f"发送频率过快，B站限制了发送 (code=36703)。请等待 1-2 分钟后再试"
             elif data["code"] == 36714:
-                msg = (f"弹幕时间点 {format_time(progress)}({progress}秒) 被B站拒绝 (code=36714)。"
-                       f"已用同样时间重试 {max_retries} 次仍失败，请尝试减小时间点")
+                msg = f"弹幕时间点 {format_time(progress)}({progress}秒) 被B站拒绝 (code=36714)"
             else:
                 msg = f"发送失败: {data.get('message', '未知错误')} (code={data['code']})"
             return {
