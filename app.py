@@ -456,10 +456,8 @@ def danmaku_list():
         danmaku_items = []
 
         # 使用新的 protobuf API (seg.so)，每个 segment 覆盖 6 分钟
-        # 根据视频时长计算需要的 segment 数量
+        # 根据视频时长计算需要的 segment 数量，拉取全部 segment
         num_segments = max(1, (duration // 360) + 1) if duration > 0 else 1
-        # 限制最多拉 10 个 segment（60 分钟），避免请求太多
-        num_segments = min(num_segments, 10)
 
         for seg_idx in range(1, num_segments + 1):
             dm_url = f"https://api.bilibili.com/x/v2/dm/web/seg.so?type=1&oid={cid}&segment_index={seg_idx}"
