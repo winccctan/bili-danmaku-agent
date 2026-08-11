@@ -9,8 +9,18 @@ import random
 import re
 import requests
 import xml.etree.ElementTree as ET
+from datetime import datetime, timezone, timedelta
 from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
+
+BEIJING_TZ = timezone(timedelta(hours=8))
+
+
+def beijing_time_str(ts):
+    """将 Unix 时间戳格式化为北京时间字符串"""
+    if not ts:
+        return ""
+    return datetime.fromtimestamp(ts, tz=BEIJING_TZ).strftime("%Y-%m-%d %H:%M:%S")
 
 app = Flask(__name__)
 CORS(app)  # 允许所有来源跨域访问
@@ -531,7 +541,7 @@ def danmaku_list():
                         "color_hex": f"#{item['color']:06x}",
                         "text": item["content"],
                         "timestamp": item["ctime"],
-                        "time_str": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(item["ctime"])) if item["ctime"] else "",
+                        "time_str": beijing_time_str(item["ctime"]),
                         "pool": item["pool"],
                         "dmid": item.get("idStr", ""),
                     })
@@ -566,7 +576,7 @@ def danmaku_list():
                     "color_hex": f"#{color:06x}",
                     "text": text,
                     "timestamp": ts,
-                    "time_str": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ts)) if ts else "",
+                    "time_str": beijing_time_str(ts),
                     "pool": pool,
                     "dmid": dmid,
                 })
