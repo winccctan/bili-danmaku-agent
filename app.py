@@ -125,8 +125,17 @@ def send_danmaku_api(
     fontsize: int = 25,
     pool: int = 0,
     progress: int = 1,
+    retry_on_rate_limit: bool = False,
+    max_retries: int = 2,
+    rate_limit_wait: float = 10.0,
 ) -> dict:
-    """发送弹幕到指定视频"""
+    """发送弹幕到指定视频
+    
+    Args:
+        retry_on_rate_limit: 遇到频率限制时是否自动等待重试
+        max_retries: 最大重试次数
+        rate_limit_wait: 遇到限流时等待秒数
+    """
     if not sessdata or not bili_jct:
         return {"success": False, "message": "缺少认证信息，请先设置 SESSDATA 和 bili_jct"}
 
@@ -159,28 +168,42 @@ def send_danmaku_api(
             "csrf": bili_jct,
         }
 
-        resp = session.post(url, data=payload, headers=headers, timeout=10)
-        data = resp.json()
+        for attempt in range(max_retries + 1):
+            resp = session.post(url, data=payload, headers=headers, timeout=10)
+            data = resp.json()
 
-        if data["code"] == 0:
-            return {
-                "success": True,
-                "message": "弹幕发送成功！",
-                "data": {
-                    "bvid": bvid,
-                    "title": video_info["title"],
-                    "text": text,
-                    "mode": mode,
-                    "color": color,
-                    "progress": progress,
-                },
-            }
-        else:
+            if data["code"] == 0:
+                return {
+                    "success": True,
+                    "message": "弹幕发送成功！",
+                    "data": {
+                        "bvid": bvid,
+                        "title": video_info["title"],
+                        "text": text,
+                        "mode": mode,
+                        "color": color,
+                        "progress": progress,
+                    },
+                }
+
+            # 频率限制 (code=36703) 且允许重试
+            if data["code"] == 36703 and retry_on_rate_limit and attempt < max_retries:
+                time.sleep(rate_limit_wait)
+                payload["rnd"] = int(time.time())  # 刷新 rnd
+                continue
+
+            # 其他错误或重试次数用完
+            if data["code"] == 36703:
+                msg = f"发送频率过快，B站限制了发送 (code=36703)。请等待 1-2 分钟后再试"
+            else:
+                msg = f"发送失败: {data.get('message', '未知错误')} (code={data['code']})"
             return {
                 "success": False,
-                "message": f"发送失败: {data.get('message', '未知错误')} (code={data['code']})",
+                "message": msg,
                 "data": {"code": data["code"]},
             }
+
+        return {"success": False, "message": "重试次数已用完", "data": {}}
     except Exception as e:
         return {"success": False, "message": str(e)}
     finally:
@@ -277,7 +300,8 @@ def send_single():
     if not bvid:
         return jsonify({"success": False, "message": "无法解析 BV ID"})
 
-    result = send_danmaku_api(sessdata, bili_jct, bvid, text, mode, color, progress=progress)
+    result = send_danmaku_api(sessdata, bili_jct, bvid, text, mode, color, progress=progress,
+                              retry_on_rate_limit=True, max_retries=2, rate_limit_wait=10.0)
     return jsonify(result)
 
 
@@ -302,7 +326,8 @@ def send_batch():
 
     results = []
     for i, msg in enumerate(messages):
-        result = send_danmaku_api(sessdata, bili_jct, bvid, msg, mode, color, progress=1)
+        result = send_danmaku_api(sessdata, bili_jct, bvid, msg, mode, color, progress=1,
+                                  retry_on_rate_limit=True, max_retries=2, rate_limit_wait=10.0)
         result["index"] = i + 1
         result["total"] = len(messages)
         results.append(result)
@@ -358,7 +383,8 @@ def send_timed():
         else:
             progress = min(time_start + i, time_end)
 
-        result = send_danmaku_api(sessdata, bili_jct, bvid, msg, mode, color, progress=progress)
+        result = send_danmaku_api(sessdata, bili_jct, bvid, msg, mode, color, progress=progress,
+                                  retry_on_rate_limit=True, max_retries=2, rate_limit_wait=10.0)
         result["index"] = i + 1
         result["total"] = count
         result["progress"] = progress
