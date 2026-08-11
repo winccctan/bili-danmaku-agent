@@ -380,12 +380,18 @@
                 </div>
 
                 <div class="form-group">
+                    <label>视频时间点（弹幕出现的位置）</label>
+                    <input type="text" id="batch-progress" placeholder="格式: 1:30 或 90（秒）" value="0:01">
+                    <p class="hint">所有弹幕发送到此时间点，支持 分:秒 格式或直接秒数</p>
+                </div>
+
+                <div class="form-group">
                     <label>发送间隔（秒）</label>
                     <input type="text" id="interval" placeholder="默认 5 秒" value="5">
                 </div>
 
                 <button class="btn btn-primary" onclick="sendBatch()" id="batch-btn">批量发送</button>
-                <p class="hint" style="margin-top:8px;">所有弹幕发送到同一视频进度（1秒处），按间隔依次发送</p>
+                <p class="hint" style="margin-top:8px;">所有弹幕发送到指定视频进度，按间隔依次发送</p>
             </div>
 
             <!-- ========== 自动循环发送 ========== -->
@@ -836,6 +842,7 @@
             const url = document.getElementById('video-url').value.trim();
             const text = document.getElementById('batch-text').value.trim();
             const interval = parseFloat(document.getElementById('interval').value) || 2;
+            const progress = document.getElementById('batch-progress').value.trim() || '0:01';
             if (!url || !text) { showToast('请填写视频链接和弹幕内容', 'error'); return; }
 
             const messages = text.split('\n').map(s => s.trim()).filter(s => s);
@@ -849,7 +856,7 @@
             try {
                 const resp = await fetch('/api/send-batch', {
                     method: 'POST', headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ ...creds, url, messages, mode: currentBatchMode, color: currentBatchColor, interval }),
+                    body: JSON.stringify({ ...creds, url, messages, mode: currentBatchMode, color: currentBatchColor, interval, progress }),
                 });
                 const data = await resp.json();
                 const resultBox = document.getElementById('send-result');
@@ -962,7 +969,10 @@
                 if (data.success) {
                     autoSendState.successCount++;
                     autoSendState.consecutiveFails = 0;
-                    addHistory({ text: msg, title: data.data?.title || autoSendState.url, progress_str: autoSendState.progress, time: new Date().toLocaleString('zh-CN') });
+                    // 显示实际发送的时间点（可能被 B站 36714 调整过）
+                    const actualProgress = data.data?.progress;
+                    const progressStr = actualProgress != null ? formatTimeShort(actualProgress) : autoSendState.progress;
+                    addHistory({ text: msg, title: data.data?.title || autoSendState.url, progress_str: progressStr, time: new Date().toLocaleString('zh-CN') });
                 } else {
                     autoSendState.failCount++;
                     autoSendState.consecutiveFails = (autoSendState.consecutiveFails || 0) + 1;
@@ -1343,6 +1353,14 @@
         }
 
         // ========== 工具函数 ==========
+        function formatTimeShort(seconds) {
+            seconds = Math.max(0, Math.floor(seconds));
+            const h = Math.floor(seconds / 3600);
+            const m = Math.floor((seconds % 3600) / 60);
+            const s = seconds % 60;
+            if (h > 0) return `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+            return `${m}:${String(s).padStart(2,'0')}`;
+        }
         function showToast(msg, type) {
             const toast = document.createElement('div');
             toast.className = 'toast';

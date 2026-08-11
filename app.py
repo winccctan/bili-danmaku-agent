@@ -162,9 +162,8 @@ def send_danmaku_api(
         # B站 API 的 progress 参数单位为毫秒，需要将秒转换为毫秒
         progress_ms = int(progress) * 1000
 
-        # 标记是否已因 36714 重试过（只重试一次）
-        _retried_36714 = False
         _original_progress = progress
+        _retry_note = ""
 
         payload = {
             "type": 1,
@@ -180,21 +179,32 @@ def send_danmaku_api(
             "csrf": bili_jct,
         }
 
-        for attempt in range(max_retries + 1):
+        # 36714 重试策略：逐步减小时间，而不是直接跳到 1 秒
+        _time_exceed_retries = 0
+        _max_time_retries = 3
+
+        for attempt in range(max_retries + 1 + _max_time_retries):
             resp = session.post(url, data=payload, headers=headers, timeout=10)
             data = resp.json()
 
             if data["code"] == 0:
+                actual_progress = progress
+                note = ""
+                if actual_progress != _original_progress:
+                    note = (f" (原设 {format_time(_original_progress)}，"
+                            f"B站拒绝后调整为 {format_time(actual_progress)})")
                 return {
                     "success": True,
-                    "message": "弹幕发送成功！" + (" (已自动重试)" if _retried_36714 else ""),
+                    "message": "弹幕发送成功！" + note,
                     "data": {
                         "bvid": bvid,
                         "title": video_info["title"],
                         "text": text,
                         "mode": mode,
                         "color": color,
-                        "progress": progress,
+                        "progress": actual_progress,
+                        "original_progress": _original_progress,
+                        "adjusted": actual_progress != _original_progress,
                     },
                 }
 
@@ -204,13 +214,20 @@ def send_danmaku_api(
                 payload["rnd"] = int(time.time())  # 刷新 rnd
                 continue
 
-            # 时间越界 (code=36714) 且允许重试且还没重试过
-            # B站 API 有时对接近视频末尾的进度返回 36714，
-            # 用最安全的 progress=1 (1000ms) 重试一次
-            if data["code"] == 36714 and retry_on_time_exceed and not _retried_36714:
-                _retried_36714 = True
-                progress = 1
-                progress_ms = 1000
+            # 时间越界 (code=36714) 且允许重试
+            # 逐步减小时间：先试 -5s，再试 -10s，最后试 1s
+            if data["code"] == 36714 and retry_on_time_exceed and _time_exceed_retries < _max_time_retries:
+                _time_exceed_retries += 1
+                if _time_exceed_retries == 1:
+                    # 第一次：减 5 秒
+                    progress = max(1, _original_progress - 5)
+                elif _time_exceed_retries == 2:
+                    # 第二次：减 10 秒
+                    progress = max(1, _original_progress - 10)
+                else:
+                    # 最后一次：用 1 秒
+                    progress = 1
+                progress_ms = progress * 1000
                 payload["progress"] = progress_ms
                 payload["rnd"] = int(time.time())
                 continue
@@ -221,8 +238,8 @@ def send_danmaku_api(
             elif data["code"] == 36714:
                 dur_str = f"视频时长 {video_duration} 秒" if video_duration else "未知视频时长"
                 msg = (f"弹幕时间点异常 (code=36714)。{dur_str}，"
-                       f"原始进度 {_original_progress} 秒({int(_original_progress)*1000}ms)，"
-                       f"已尝试用 1 秒重试仍失败")
+                       f"设的进度 {format_time(_original_progress)}，"
+                       f"已逐步减小重试仍失败")
             else:
                 msg = f"发送失败: {data.get('message', '未知错误')} (code={data['code']})"
             return {
@@ -427,6 +444,11 @@ def send_batch():
     mode = int(data.get("mode", 1))
     color = int(data.get("color", 16777215))
     interval = float(data.get("interval", 2.0))
+    progress_raw = data.get("progress", "1")
+    if isinstance(progress_raw, str) and ":" in progress_raw:
+        progress = parse_time_string(progress_raw)
+    else:
+        progress = int(progress_raw) if progress_raw else 1
 
     if not url or not messages:
         return jsonify({"success": False, "message": "视频链接和弹幕内容不能为空"})
@@ -437,7 +459,7 @@ def send_batch():
 
     results = []
     for i, msg in enumerate(messages):
-        result = send_danmaku_api(sessdata, bili_jct, bvid, msg, mode, color, progress=1,
+        result = send_danmaku_api(sessdata, bili_jct, bvid, msg, mode, color, progress=progress,
                                   retry_on_rate_limit=True, max_retries=2, rate_limit_wait=10.0)
         result["index"] = i + 1
         result["total"] = len(messages)
