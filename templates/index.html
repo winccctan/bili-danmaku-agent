@@ -422,8 +422,9 @@
                         <input type="text" id="auto-interval" placeholder="默认 10 秒" value="10">
                     </div>
                     <div class="form-group">
-                        <label>视频时间点</label>
-                        <input type="text" id="auto-progress" placeholder="0:01" value="0:01">
+                        <label>视频时间点 <span id="auto-duration-hint" style="font-size:11px;color:var(--text-tertiary);"></span></label>
+                        <input type="text" id="auto-progress" placeholder="如 1:30 表示1分30秒" value="0:01" oninput="previewAutoTime()">
+                        <p class="hint" style="margin-top:4px;" id="auto-time-preview">格式：秒数(如 90) 或 分:秒(如 1:30) 或 时:分:秒(如 1:02:30)</p>
                     </div>
                 </div>
 
@@ -697,6 +698,9 @@
                 const hint = `支持 分:秒 格式（如 1:30）或直接输入秒数（如 90）| 视频时长: ${maxStr}，超过将自动截断`;
                 const ph = document.getElementById('progress-hint');
                 if (ph) ph.textContent = hint;
+                // 自动循环 Tab 也显示时长
+                const autoHint = document.getElementById('auto-duration-hint');
+                if (autoHint) autoHint.textContent = `(视频时长: ${maxStr})`;
             }
         }
 
@@ -896,8 +900,15 @@
             const url = document.getElementById('video-url').value.trim();
             const text = document.getElementById('auto-text').value.trim();
             const interval = parseFloat(document.getElementById('auto-interval').value) || 10;
-            const progress = document.getElementById('auto-progress').value.trim() || '0:01';
+            const progressStr = document.getElementById('auto-progress').value.trim() || '0:01';
             if (!url || !text) { showToast('请填写视频链接和弹幕内容', 'error'); return; }
+
+            // 前端预检：解析时间字符串，检查是否超过视频时长
+            const progressSec = parseTimeStr(progressStr);
+            if (videoDuration > 0 && progressSec > videoDuration) {
+                showToast(`时间点 ${formatTimeShort(progressSec)} 超过视频时长 ${formatTimeShort(videoDuration)}！`, 'error');
+                return;
+            }
 
             const messages = text.split('\n').map(s => s.trim()).filter(s => s);
             if (messages.length === 0) { showToast('请输入至少一条弹幕', 'error'); return; }
@@ -913,7 +924,7 @@
                 pauseInterval: null,
                 url,
                 interval,
-                progress,
+                progress: progressStr,
             };
 
             document.getElementById('auto-start-btn').style.display = 'none';
@@ -943,6 +954,12 @@
 
         async function autoSendOne() {
             if (!autoSendState.running) return;
+
+            // 清理暂停倒计时（恢复发送时）
+            if (autoSendState.pauseInterval) {
+                clearInterval(autoSendState.pauseInterval);
+                autoSendState.pauseInterval = null;
+            }
 
             const creds = getCredentials();
             const msg = autoSendState.messages[autoSendState.index];
@@ -1381,6 +1398,35 @@
             const s = seconds % 60;
             if (h > 0) return `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
             return `${m}:${String(s).padStart(2,'0')}`;
+        }
+
+        function parseTimeStr(str) {
+            str = String(str || '').trim();
+            if (!str) return 0;
+            if (/^\d+$/.test(str)) return parseInt(str);
+            const parts = str.split(':').map(p => parseInt(p) || 0);
+            if (parts.length === 2) return parts[0] * 60 + parts[1];
+            if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+            return 0;
+        }
+
+        function previewAutoTime() {
+            const input = document.getElementById('auto-progress').value.trim();
+            const el = document.getElementById('auto-time-preview');
+            if (!el) return;
+            if (!input) { el.textContent = '格式：秒数(如 90) 或 分:秒(如 1:30) 或 时:分:秒(如 1:02:30)'; return; }
+            const sec = parseTimeStr(input);
+            const formatted = formatTimeShort(sec);
+            let html = `解析结果: ${formatted} (${sec}秒)`;
+            if (videoDuration > 0) {
+                if (sec > videoDuration) {
+                    html += ` — <strong style="color:var(--error);">⚠️ 超过视频时长 ${formatTimeShort(videoDuration)}！</strong>`;
+                } else {
+                    html += ` — 视频时长 ${formatTimeShort(videoDuration)}`;
+                }
+            }
+            html += '<br>格式：秒数(如 90) 或 分:秒(如 1:30) 或 时:分:秒(如 1:02:30)';
+            el.innerHTML = html;
         }
         function showToast(msg, type) {
             const toast = document.createElement('div');

@@ -142,6 +142,17 @@ def send_danmaku_api(
     try:
         video_info = get_video_info(bvid, session)
         cid = video_info["cid"]
+        video_duration = video_info.get("duration", 0)
+
+        # 发送前预检：如果时间点超过视频时长，直接返回，不发请求
+        if video_duration > 0 and progress > video_duration:
+            return {
+                "success": False,
+                "message": (f"时间点 {format_time(progress)}({progress}秒) 超过视频时长 "
+                            f"{format_time(video_duration)}({video_duration}秒)。"
+                            f"请将时间点设为视频时长以内"),
+                "data": {"code": 36714, "video_duration": video_duration, "progress": progress},
+            }
 
         url = "https://api.bilibili.com/x/v2/dm/post"
         headers = {
@@ -188,11 +199,12 @@ def send_danmaku_api(
 
             # 36714(时间越界) 直接返回，不重试（重试同样时间没意义）
             if data["code"] == 36714:
-                dur_str = f"视频时长 {format_time(video_duration)}" if video_duration else "未知视频时长"
+                dur_str = f"视频时长 {format_time(video_duration)}({video_duration}秒)" if video_duration else "未知视频时长"
                 return {
                     "success": False,
-                    "message": f"弹幕时间点 {format_time(progress)} 被B站拒绝 (code=36714)。{dur_str}",
-                    "data": {"code": 36714},
+                    "message": (f"B站返回时间越界 (code=36714)。你设的时间点 {format_time(progress)}({progress}秒)，"
+                                f"{dur_str}。如果时间没超，可能是B站实际媒体时长略短于元数据"),
+                    "data": {"code": 36714, "video_duration": video_duration, "progress": progress},
                 }
 
             # 频率限制 (36703)：等待后用同样的时间重试
