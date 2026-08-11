@@ -1,0 +1,1019 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>B站弹幕 Agent</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        :root {
+            --bili-pink: #fb7299;
+            --bili-blue: #00a1d6;
+            --bg-primary: #f4f5f7;
+            --bg-card: #ffffff;
+            --text-primary: #18191c;
+            --text-secondary: #61666d;
+            --text-tertiary: #9499a0;
+            --border: #e3e5e7;
+            --success: #00b340;
+            --error: #f25d43;
+            --shadow: 0 2px 8px rgba(0,0,0,0.08);
+            --radius: 12px;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            line-height: 1.6;
+        }
+
+        .header {
+            background: linear-gradient(135deg, var(--bili-pink), var(--bili-blue));
+            padding: 24px 0;
+            text-align: center;
+            color: white;
+        }
+        .header h1 { font-size: 28px; font-weight: 700; margin-bottom: 6px; }
+        .header p { font-size: 14px; opacity: 0.9; }
+
+        .container { max-width: 800px; margin: 0 auto; padding: 24px 16px 60px; }
+
+        .card {
+            background: var(--bg-card);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            padding: 24px;
+            margin-bottom: 20px;
+        }
+        .card-title {
+            font-size: 18px; font-weight: 600; margin-bottom: 16px;
+            display: flex; align-items: center; gap: 8px;
+        }
+        .card-title .badge {
+            font-size: 12px; padding: 2px 10px; border-radius: 20px; font-weight: 400;
+        }
+        .badge-ok { background: #e8f8ee; color: var(--success); }
+        .badge-warn { background: #fff4e6; color: #f80; }
+        .badge-err { background: #ffeaea; color: var(--error); }
+
+        .form-group { margin-bottom: 16px; }
+        .form-group:last-child { margin-bottom: 0; }
+        label {
+            display: block; font-size: 13px; color: var(--text-secondary);
+            margin-bottom: 6px; font-weight: 500;
+        }
+        input[type="text"], input[type="password"], input[type="datetime-local"], textarea, select {
+            width: 100%; padding: 10px 14px; border: 1.5px solid var(--border);
+            border-radius: 8px; font-size: 14px; font-family: inherit;
+            transition: border-color 0.2s; background: var(--bg-card); color: var(--text-primary);
+        }
+        input:focus, textarea:focus, select:focus { outline: none; border-color: var(--bili-blue); }
+        textarea { resize: vertical; min-height: 80px; }
+        .hint { font-size: 12px; color: var(--text-tertiary); margin-top: 4px; }
+
+        .btn {
+            display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+            padding: 10px 24px; border: none; border-radius: 8px; font-size: 14px;
+            font-weight: 600; cursor: pointer; transition: all 0.2s; font-family: inherit;
+        }
+        .btn-primary { background: var(--bili-pink); color: white; }
+        .btn-primary:hover { background: #f56489; }
+        .btn-secondary { background: var(--bili-blue); color: white; }
+        .btn-secondary:hover { background: #0091c2; }
+        .btn-outline { background: transparent; border: 1.5px solid var(--border); color: var(--text-secondary); }
+        .btn-outline:hover { border-color: var(--bili-blue); color: var(--bili-blue); }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-sm { padding: 6px 14px; font-size: 13px; }
+
+        .row { display: flex; gap: 12px; align-items: flex-end; }
+        .row > .form-group { flex: 1; }
+
+        .tabs { display: flex; gap: 0; margin-bottom: 20px; border-bottom: 2px solid var(--border); flex-wrap: wrap; }
+        .tab {
+            padding: 10px 16px; font-size: 14px; font-weight: 500; color: var(--text-secondary);
+            cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -2px; transition: all 0.2s;
+        }
+        .tab.active { color: var(--bili-pink); border-bottom-color: var(--bili-pink); }
+
+        .video-info {
+            display: flex; gap: 16px; padding: 16px; background: #f9fafb;
+            border-radius: 10px; margin-bottom: 16px;
+        }
+        .video-info img { width: 160px; height: 100px; object-fit: cover; border-radius: 8px; flex-shrink: 0; }
+        .video-info .info { flex: 1; min-width: 0; }
+        .video-info .info h3 {
+            font-size: 15px; font-weight: 600; margin-bottom: 6px; overflow: hidden;
+            text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+        }
+        .video-info .info p { font-size: 13px; color: var(--text-secondary); }
+        .video-info .info .meta { font-size: 12px; color: var(--text-tertiary); margin-top: 4px; }
+
+        .color-grid { display: flex; gap: 8px; flex-wrap: wrap; }
+        .color-option {
+            width: 36px; height: 36px; border-radius: 50%; cursor: pointer;
+            border: 3px solid transparent; transition: all 0.2s;
+        }
+        .color-option.active { border-color: var(--bili-pink); transform: scale(1.1); }
+
+        .mode-group { display: flex; gap: 8px; }
+        .mode-option {
+            flex: 1; padding: 10px; text-align: center; border: 1.5px solid var(--border);
+            border-radius: 8px; cursor: pointer; font-size: 13px; transition: all 0.2s;
+        }
+        .mode-option.active {
+            border-color: var(--bili-pink); background: #fff0f4; color: var(--bili-pink); font-weight: 600;
+        }
+
+        .time-range-box {
+            background: #f9fafb; border-radius: 10px; padding: 16px; margin-bottom: 16px;
+        }
+        .time-range-box label { color: var(--text-secondary); }
+        .time-range-row { display: flex; gap: 12px; align-items: center; }
+        .time-range-row .form-group { flex: 1; margin-bottom: 0; }
+        .time-arrow { font-size: 20px; color: var(--text-tertiary); padding-bottom: 10px; }
+
+        .dist-group { display: flex; gap: 8px; }
+        .dist-option {
+            flex: 1; padding: 8px; text-align: center; border: 1.5px solid var(--border);
+            border-radius: 8px; cursor: pointer; font-size: 12px; transition: all 0.2s;
+        }
+        .dist-option.active {
+            border-color: var(--bili-blue); background: #e6f7fc; color: var(--bili-blue); font-weight: 600;
+        }
+
+        .result-box { padding: 14px 16px; border-radius: 8px; font-size: 14px; margin-top: 12px; display: none; }
+        .result-box.show { display: block; }
+        .result-success { background: #e8f8ee; color: var(--success); }
+        .result-error { background: #ffeaea; color: var(--error); }
+
+        .history-list { max-height: 400px; overflow-y: auto; }
+        .history-item {
+            display: flex; align-items: center; gap: 12px; padding: 12px 0;
+            border-bottom: 1px solid var(--border); font-size: 13px;
+        }
+        .history-item:last-child { border-bottom: none; }
+        .history-item .time { color: var(--text-tertiary); font-size: 12px; white-space: nowrap; }
+        .history-item .text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .history-item .video { color: var(--bili-blue); font-size: 12px; }
+        .history-item .progress-tag {
+            font-size: 11px; background: #f0f1f3; padding: 2px 8px; border-radius: 10px;
+            color: var(--text-secondary); white-space: nowrap;
+        }
+        .empty-state { text-align: center; padding: 40px 20px; color: var(--text-tertiary); font-size: 14px; }
+
+        .task-item {
+            display: flex; align-items: center; gap: 12px; padding: 12px 0;
+            border-bottom: 1px solid var(--border); font-size: 13px;
+        }
+        .task-item:last-child { border-bottom: none; }
+        .task-status {
+            font-size: 11px; padding: 2px 8px; border-radius: 10px; font-weight: 500;
+        }
+        .status-pending { background: #fff4e6; color: #f80; }
+        .status-running { background: #e6f7fc; color: var(--bili-blue); }
+        .status-completed { background: #e8f8ee; color: var(--success); }
+        .status-cancelled { background: #f0f1f3; color: var(--text-tertiary); }
+
+        .toast {
+            position: fixed; top: 20px; right: 20px; padding: 12px 20px; border-radius: 8px;
+            font-size: 14px; z-index: 9999; animation: slideIn 0.3s ease;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+
+        .spinner {
+            display: inline-block; width: 16px; height: 16px;
+            border: 2px solid rgba(255,255,255,0.3); border-top-color: white;
+            border-radius: 50%; animation: spin 0.6s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .collapse-header { cursor: pointer; user-select: none; }
+        .collapse-body { display: none; margin-top: 16px; }
+        .collapse-body.show { display: block; }
+        .arrow { transition: transform 0.2s; display: inline-block; }
+        .arrow.open { transform: rotate(90deg); }
+
+        .hidden { display: none !important; }
+
+        .footer { text-align: center; padding: 20px; font-size: 12px; color: var(--text-tertiary); }
+        .footer a { color: var(--bili-blue); text-decoration: none; }
+
+        .countdown { font-size: 13px; color: var(--bili-blue); font-weight: 500; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>B站弹幕 Agent</h1>
+        <p>指定视频 · 时间段分布 · 定时发送 · 自定义样式</p>
+    </div>
+
+    <div class="container">
+        <!-- 凭证设置 -->
+        <div class="card">
+            <div class="card-title collapse-header" onclick="toggleCollapse('cred-body', this)">
+                <span class="arrow">▶</span>
+                B站账号认证
+                <span class="badge badge-warn" id="cred-badge">未设置</span>
+            </div>
+            <div class="collapse-body show" id="cred-body">
+                <div class="form-group">
+                    <label>SESSDATA</label>
+                    <input type="password" id="sessdata" placeholder="粘贴你的 SESSDATA cookie 值">
+                </div>
+                <div class="form-group">
+                    <label>bili_jct (CSRF Token)</label>
+                    <input type="password" id="bili_jct" placeholder="粘贴你的 bili_jct cookie 值">
+                </div>
+                <p class="hint">获取方式：浏览器登录 B站 → F12 开发者工具 → Application → Cookies → 找到 SESSDATA 和 bili_jct</p>
+                <p class="hint" style="color: var(--error);">⚠️ 凭证仅保存在你浏览器的 localStorage 中，不会上传到服务器存储。</p>
+                <div style="display:flex; gap:10px; margin-top:12px;">
+                    <button class="btn btn-primary btn-sm" onclick="saveCredentials()">保存凭证</button>
+                    <button class="btn btn-outline btn-sm" onclick="checkLogin()">验证登录状态</button>
+                    <button class="btn btn-outline btn-sm" onclick="clearCredentials()">清除</button>
+                </div>
+                <div class="result-box" id="login-result"></div>
+            </div>
+        </div>
+
+        <!-- 功能区 -->
+        <div class="card">
+            <div class="tabs">
+                <div class="tab active" onclick="switchTab(event,'single')">单条发送</div>
+                <div class="tab" onclick="switchTab(event,'timed')">时间段发送</div>
+                <div class="tab" onclick="switchTab(event,'batch')">批量发送</div>
+                <div class="tab" onclick="switchTab(event,'scheduled')">定时发送</div>
+            </div>
+
+            <!-- 视频链接（公共） -->
+            <div class="form-group">
+                <label>视频链接 / BV号</label>
+                <div class="row">
+                    <div class="form-group" style="margin-bottom:0;">
+                        <input type="text" id="video-url" placeholder="粘贴视频链接或输入 BV号" oninput="debounceFetch()">
+                    </div>
+                    <button class="btn btn-secondary btn-sm" onclick="fetchVideoInfo()" style="white-space:nowrap;">获取信息</button>
+                </div>
+            </div>
+
+            <!-- 视频信息展示（公共） -->
+            <div id="video-info-box" class="hidden"></div>
+
+            <!-- ========== 单条发送 ========== -->
+            <div id="tab-single">
+                <div class="form-group">
+                    <label>弹幕内容</label>
+                    <textarea id="danmaku-text" placeholder="输入弹幕内容..." maxlength="100"></textarea>
+                    <p class="hint" id="char-count">0/100 字</p>
+                </div>
+
+                <div class="form-group">
+                    <label>弹幕模式</label>
+                    <div class="mode-group" id="mode-group">
+                        <div class="mode-option active" data-mode="1" onclick="selectMode(this,'mode-group')">滚动</div>
+                        <div class="mode-option" data-mode="4" onclick="selectMode(this,'mode-group')">顶部</div>
+                        <div class="mode-option" data-mode="5" onclick="selectMode(this,'mode-group')">底部</div>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>弹幕颜色</label>
+                    <div class="color-grid" id="color-grid"></div>
+                </div>
+
+                <div class="form-group">
+                    <label>视频时间点（弹幕出现的位置）</label>
+                    <input type="text" id="progress" placeholder="格式: 1:30 或 90（秒）" value="0:01">
+                    <p class="hint">支持 分:秒 格式（如 1:30）或直接输入秒数（如 90）</p>
+                </div>
+
+                <button class="btn btn-primary" onclick="sendDanmaku()" id="send-btn">发送弹幕</button>
+            </div>
+
+            <!-- ========== 时间段发送 ========== -->
+            <div id="tab-timed" class="hidden">
+                <div class="time-range-box">
+                    <label style="display:block; font-size:13px; color:var(--text-secondary); margin-bottom:10px; font-weight:500;">
+                        视频时间段（弹幕将分布在此区间内）
+                    </label>
+                    <div class="time-range-row">
+                        <div class="form-group">
+                            <label>起始时间</label>
+                            <input type="text" id="time-start" placeholder="0:00" value="0:10">
+                        </div>
+                        <span class="time-arrow">~</span>
+                        <div class="form-group">
+                            <label>结束时间</label>
+                            <input type="text" id="time-end" placeholder="1:00" value="0:40">
+                        </div>
+                    </div>
+                    <p class="hint">格式: 分:秒（如 1:30）或秒数（如 90）</p>
+                </div>
+
+                <div class="form-group">
+                    <label>分布方式</label>
+                    <div class="dist-group" id="dist-group">
+                        <div class="dist-option active" data-dist="even" onclick="selectDist(this)">均匀分布</div>
+                        <div class="dist-option" data-dist="random" onclick="selectDist(this)">随机分布</div>
+                        <div class="dist-option" data-dist="sequence" onclick="selectDist(this)">顺序递增</div>
+                    </div>
+                    <p class="hint">均匀：等间距分布 · 随机：区间内随机位置 · 顺序：从起始时间逐条递增</p>
+                </div>
+
+                <div class="form-group">
+                    <label>弹幕列表（每行一条）</label>
+                    <textarea id="timed-text" placeholder="弹幕1&#10;弹幕2&#10;弹幕3..." rows="6" style="min-height:120px;"></textarea>
+                    <p class="hint" id="timed-count">0 条弹幕</p>
+                </div>
+
+                <div class="form-group">
+                    <label>弹幕模式</label>
+                    <div class="mode-group" id="timed-mode-group">
+                        <div class="mode-option active" data-mode="1" onclick="selectMode(this,'timed-mode-group')">滚动</div>
+                        <div class="mode-option" data-mode="4" onclick="selectMode(this,'timed-mode-group')">顶部</div>
+                        <div class="mode-option" data-mode="5" onclick="selectMode(this,'timed-mode-group')">底部</div>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>弹幕颜色</label>
+                    <div class="color-grid" id="timed-color-grid"></div>
+                </div>
+
+                <div class="form-group">
+                    <label>发送间隔（秒，防频率限制）</label>
+                    <input type="text" id="timed-interval" placeholder="默认 2 秒" value="2">
+                </div>
+
+                <button class="btn btn-primary" onclick="sendTimed()" id="timed-btn">时间段发送</button>
+                <p class="hint" style="margin-top:8px;">每条弹幕会被分配到时间段内的不同视频进度位置</p>
+            </div>
+
+            <!-- ========== 批量发送 ========== -->
+            <div id="tab-batch" class="hidden">
+                <div class="form-group">
+                    <label>弹幕列表（每行一条）</label>
+                    <textarea id="batch-text" placeholder="弹幕1&#10;弹幕2&#10;弹幕3..." rows="8" style="min-height:160px;"></textarea>
+                    <p class="hint" id="batch-count">0 条弹幕</p>
+                </div>
+
+                <div class="form-group">
+                    <label>弹幕模式</label>
+                    <div class="mode-group" id="batch-mode-group">
+                        <div class="mode-option active" data-mode="1" onclick="selectMode(this,'batch-mode-group')">滚动</div>
+                        <div class="mode-option" data-mode="4" onclick="selectMode(this,'batch-mode-group')">顶部</div>
+                        <div class="mode-option" data-mode="5" onclick="selectMode(this,'batch-mode-group')">底部</div>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>弹幕颜色</label>
+                    <div class="color-grid" id="batch-color-grid"></div>
+                </div>
+
+                <div class="form-group">
+                    <label>发送间隔（秒）</label>
+                    <input type="text" id="interval" placeholder="默认 2 秒" value="2">
+                </div>
+
+                <button class="btn btn-primary" onclick="sendBatch()" id="batch-btn">批量发送</button>
+                <p class="hint" style="margin-top:8px;">所有弹幕发送到同一视频进度（1秒处），按间隔依次发送</p>
+            </div>
+
+            <!-- ========== 定时发送（客户端定时） ========== -->
+            <div id="tab-scheduled" class="hidden">
+                <div class="time-range-box">
+                    <label style="display:block; font-size:13px; color:var(--text-secondary); margin-bottom:10px; font-weight:500;">
+                        定时发送时间（到达此时间后自动发送）
+                    </label>
+                    <input type="datetime-local" id="scheduled-time" style="width:100%;">
+                    <p class="hint">选择一个未来的时间点，浏览器将在该时间自动发送弹幕</p>
+                    <p class="hint" style="color: var(--error);">⚠️ 需保持此页面打开，关闭页面将取消定时任务</p>
+                </div>
+
+                <div class="form-group">
+                    <label>弹幕列表（每行一条）</label>
+                    <textarea id="scheduled-text" placeholder="弹幕1&#10;弹幕2&#10;弹幕3..." rows="6" style="min-height:120px;"></textarea>
+                    <p class="hint" id="scheduled-count">0 条弹幕</p>
+                </div>
+
+                <div class="form-group">
+                    <label>弹幕模式</label>
+                    <div class="mode-group" id="scheduled-mode-group">
+                        <div class="mode-option active" data-mode="1" onclick="selectMode(this,'scheduled-mode-group')">滚动</div>
+                        <div class="mode-option" data-mode="4" onclick="selectMode(this,'scheduled-mode-group')">顶部</div>
+                        <div class="mode-option" data-mode="5" onclick="selectMode(this,'scheduled-mode-group')">底部</div>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>弹幕颜色</label>
+                    <div class="color-grid" id="scheduled-color-grid"></div>
+                </div>
+
+                <div class="form-group">
+                    <label>发送间隔（秒）</label>
+                    <input type="text" id="scheduled-interval" placeholder="默认 2 秒" value="2">
+                </div>
+
+                <button class="btn btn-primary" onclick="createScheduledTask()" id="scheduled-btn">创建定时任务</button>
+                <p class="hint" style="margin-top:8px;">任务在浏览器端倒计时，到达指定时间后自动发送</p>
+            </div>
+
+            <!-- 结果展示（公共） -->
+            <div class="result-box" id="send-result"></div>
+        </div>
+
+        <!-- 定时任务列表 -->
+        <div class="card" id="task-card" style="display:none;">
+            <div class="card-title">
+                定时任务列表
+                <span class="badge badge-ok" id="task-count">0 个</span>
+                <button class="btn btn-outline btn-sm" onclick="renderTasks()" style="margin-left:auto;">刷新</button>
+            </div>
+            <div id="task-list"></div>
+        </div>
+
+        <!-- 历史记录 -->
+        <div class="card">
+            <div class="card-title">
+                发送历史
+                <span class="badge badge-ok" id="history-count">0 条</span>
+                <button class="btn btn-outline btn-sm" onclick="clearHistory()" style="margin-left:auto;">清空</button>
+            </div>
+            <div class="history-list" id="history-list">
+                <div class="empty-state">暂无发送记录</div>
+            </div>
+        </div>
+
+        <div class="footer">
+            B站弹幕 Agent · 仅供学习交流使用 · 请遵守 <a href="https://www.bilibili.com" target="_blank">B站社区规范</a>
+        </div>
+    </div>
+
+    <script>
+        // ========== 状态 ==========
+        let currentMode = 1;
+        let currentTimedMode = 1;
+        let currentBatchMode = 1;
+        let currentScheduledMode = 1;
+        let currentColor = 16777215;
+        let currentTimedColor = 16777215;
+        let currentBatchColor = 16777215;
+        let currentScheduledColor = 16777215;
+        let currentDist = 'even';
+        let fetchTimer = null;
+        let scheduledTasks = []; // 客户端定时任务
+        let taskTimers = {}; // taskId -> setTimeout handle
+
+        const COLORS = {
+            "白色": 16777215, "红色": 65536, "蓝色": 16711680, "绿色": 65280,
+            "黄色": 6553600, "青色": 16776960, "粉色": 65535, "橙色": 255,
+        };
+        const COLOR_HEX = {
+            16777215: "#ffffff", 65536: "#ff0000", 16711680: "#0000ff", 65280: "#00ff00",
+            6553600: "#ffff00", 16776960: "#00ffff", 65535: "#ff00ff", 255: "#ff8c00",
+        };
+
+        // ========== 凭证管理（localStorage） ==========
+        function getCredentials() {
+            return {
+                sessdata: localStorage.getItem('bili_sessdata') || '',
+                bili_jct: localStorage.getItem('bili_bili_jct') || '',
+            };
+        }
+
+        function saveCredentials() {
+            const sessdata = document.getElementById('sessdata').value.trim();
+            const bili_jct = document.getElementById('bili_jct').value.trim();
+            if (!sessdata || !bili_jct) { showToast('请填写完整的凭证信息', 'error'); return; }
+            localStorage.setItem('bili_sessdata', sessdata);
+            localStorage.setItem('bili_bili_jct', bili_jct);
+            showToast('凭证已保存到浏览器', 'success');
+            document.getElementById('cred-badge').textContent = '已设置';
+            document.getElementById('cred-badge').className = 'badge badge-ok';
+        }
+
+        function clearCredentials() {
+            localStorage.removeItem('bili_sessdata');
+            localStorage.removeItem('bili_bili_jct');
+            document.getElementById('sessdata').value = '';
+            document.getElementById('bili_jct').value = '';
+            document.getElementById('cred-badge').textContent = '未设置';
+            document.getElementById('cred-badge').className = 'badge badge-warn';
+            showToast('凭证已清除', 'success');
+        }
+
+        async function checkLogin() {
+            const creds = getCredentials();
+            if (!creds.sessdata) { showToast('请先保存凭证', 'error'); return; }
+
+            const resultBox = document.getElementById('login-result');
+            resultBox.className = 'result-box show';
+            resultBox.innerHTML = '正在验证...';
+
+            try {
+                const resp = await fetch('/api/login-check', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(creds),
+                });
+                const data = await resp.json();
+                if (data.logged_in) {
+                    resultBox.className = 'result-box show result-success';
+                    resultBox.innerHTML = `✅ ${data.message}`;
+                    document.getElementById('cred-badge').textContent = '已登录';
+                    document.getElementById('cred-badge').className = 'badge badge-ok';
+                } else {
+                    resultBox.className = 'result-box show result-error';
+                    resultBox.innerHTML = `❌ ${data.message}`;
+                    document.getElementById('cred-badge').textContent = '未登录';
+                    document.getElementById('cred-badge').className = 'badge badge-err';
+                }
+            } catch (e) {
+                resultBox.className = 'result-box show result-error';
+                resultBox.innerHTML = '❌ 网络错误';
+            }
+        }
+
+        // ========== 颜色初始化 ==========
+        function initColors(gridId, type) {
+            const grid = document.getElementById(gridId);
+            Object.entries(COLORS).forEach(([name, val]) => {
+                const hex = COLOR_HEX[val] || '#ffffff';
+                const el = document.createElement('div');
+                el.className = 'color-option' + (val === 16777215 ? ' active' : '');
+                el.style.background = hex;
+                el.style.border = val === 16777215 ? '3px solid #ddd' : '3px solid transparent';
+                el.title = name;
+                el.onclick = () => selectColor(el, val, type);
+                grid.appendChild(el);
+            });
+        }
+
+        // ========== 视频信息 ==========
+        function debounceFetch() {
+            clearTimeout(fetchTimer);
+            fetchTimer = setTimeout(fetchVideoInfo, 800);
+        }
+
+        async function fetchVideoInfo() {
+            const url = document.getElementById('video-url').value.trim();
+            if (!url) { document.getElementById('video-info-box').classList.add('hidden'); return; }
+            try {
+                const resp = await fetch('/api/video-info', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ url }),
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    const v = data.data;
+                    const box = document.getElementById('video-info-box');
+                    box.className = 'video-info';
+                    box.innerHTML = `
+                        ${v.cover ? `<img src="${v.cover}" alt="封面" onerror="this.style.display='none'">` : ''}
+                        <div class="info">
+                            <h3>${v.title}</h3>
+                            <p>UP主: ${v.owner_name}</p>
+                            <p class="meta">${v.bvid} · 时长: ${formatDuration(v.duration)} · CID: ${v.cid}</p>
+                        </div>
+                    `;
+                } else {
+                    document.getElementById('video-info-box').classList.add('hidden');
+                }
+            } catch (e) {
+                document.getElementById('video-info-box').classList.add('hidden');
+            }
+        }
+
+        function formatDuration(sec) {
+            const m = Math.floor(sec / 60);
+            const s = sec % 60;
+            return `${m}:${s.toString().padStart(2,'0')}`;
+        }
+
+        // ========== Tab 切换 ==========
+        function switchTab(e, tab) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            e.target.classList.add('active');
+            ['single','timed','batch','scheduled'].forEach(t => {
+                document.getElementById('tab-' + t).classList.toggle('hidden', tab !== t);
+            });
+            if (tab === 'scheduled') renderTasks();
+        }
+
+        // ========== 模式/分布/颜色选择 ==========
+        function selectMode(el, groupId) {
+            document.querySelectorAll(`#${groupId} .mode-option`).forEach(m => m.classList.remove('active'));
+            el.classList.add('active');
+            const mode = parseInt(el.dataset.mode);
+            if (groupId === 'mode-group') currentMode = mode;
+            else if (groupId === 'timed-mode-group') currentTimedMode = mode;
+            else if (groupId === 'batch-mode-group') currentBatchMode = mode;
+            else if (groupId === 'scheduled-mode-group') currentScheduledMode = mode;
+        }
+
+        function selectDist(el) {
+            document.querySelectorAll('#dist-group .dist-option').forEach(d => d.classList.remove('active'));
+            el.classList.add('active');
+            currentDist = el.dataset.dist;
+        }
+
+        function selectColor(el, val, type) {
+            const stateMap = {
+                single: 'currentColor', timed: 'currentTimedColor',
+                batch: 'currentBatchColor', scheduled: 'currentScheduledColor',
+            };
+            const gridMap = {
+                single: '#color-grid', timed: '#timed-color-grid',
+                batch: '#batch-color-grid', scheduled: '#scheduled-color-grid',
+            };
+            document.querySelectorAll(`${gridMap[type]} .color-option`).forEach(c => {
+                c.classList.remove('active');
+                c.style.borderColor = c.style.background === 'rgb(255, 255, 255)' || c.style.background === '#ffffff' ? '#ddd' : 'transparent';
+            });
+            el.classList.add('active');
+            el.style.borderColor = 'var(--bili-pink)';
+            window[stateMap[type]] = val;
+        }
+
+        // ========== 单条发送 ==========
+        async function sendDanmaku() {
+            const creds = getCredentials();
+            if (!creds.sessdata || !creds.bili_jct) { showToast('请先保存 B站凭证', 'error'); return; }
+
+            const url = document.getElementById('video-url').value.trim();
+            const text = document.getElementById('danmaku-text').value.trim();
+            const progress = document.getElementById('progress').value.trim() || '0:01';
+            if (!url || !text) { showToast('请填写视频链接和弹幕内容', 'error'); return; }
+
+            const btn = document.getElementById('send-btn');
+            const orig = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span> 发送中...';
+
+            try {
+                const resp = await fetch('/api/send', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ ...creds, url, text, mode: currentMode, color: currentColor, progress }),
+                });
+                const data = await resp.json();
+                const resultBox = document.getElementById('send-result');
+                resultBox.className = 'result-box show ' + (data.success ? 'result-success' : 'result-error');
+                resultBox.innerHTML = (data.success ? '✅ ' : '❌ ') + data.message;
+                if (data.success) {
+                    showToast('弹幕发送成功！', 'success');
+                    addHistory({ text, title: data.data?.title || url, progress_str: progress, time: new Date().toLocaleString('zh-CN') });
+                } else showToast(data.message, 'error');
+            } catch (e) { showToast('网络错误', 'error'); }
+            finally { btn.disabled = false; btn.innerHTML = orig; }
+        }
+
+        // ========== 时间段发送 ==========
+        async function sendTimed() {
+            const creds = getCredentials();
+            if (!creds.sessdata || !creds.bili_jct) { showToast('请先保存 B站凭证', 'error'); return; }
+
+            const url = document.getElementById('video-url').value.trim();
+            const text = document.getElementById('timed-text').value.trim();
+            const timeStart = document.getElementById('time-start').value.trim();
+            const timeEnd = document.getElementById('time-end').value.trim();
+            const sendInterval = parseFloat(document.getElementById('timed-interval').value) || 2;
+            if (!url || !text) { showToast('请填写视频链接和弹幕内容', 'error'); return; }
+
+            const messages = text.split('\n').map(s => s.trim()).filter(s => s);
+            if (messages.length === 0) { showToast('请输入至少一条弹幕', 'error'); return; }
+
+            const btn = document.getElementById('timed-btn');
+            const orig = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = `<span class="spinner"></span> 发送中 (0/${messages.length})...`;
+
+            try {
+                const resp = await fetch('/api/send-timed', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        ...creds, url, messages, mode: currentTimedMode, color: currentTimedColor,
+                        time_start: timeStart, time_end: timeEnd,
+                        distribution: currentDist, send_interval: sendInterval,
+                    }),
+                });
+                const data = await resp.json();
+                const resultBox = document.getElementById('send-result');
+                resultBox.className = 'result-box show ' + (data.success ? 'result-success' : 'result-error');
+
+                if (data.success) {
+                    const sc = data.results.filter(r => r.success).length;
+                    let html = `✅ ${data.message}<br><br>`;
+                    html += data.results.map(r =>
+                        `${r.success ? '✅' : '❌'} [${r.index}/${r.total}] ` +
+                        `<span style="color:var(--bili-blue)">[${r.progress_str || '?'}]</span> ` +
+                        `${r.data?.text || ''} - ${r.message}`
+                    ).join('<br>');
+                    resultBox.innerHTML = html;
+                    showToast(`时间段发送完成: ${sc}/${messages.length} 成功`, 'success');
+                    data.results.filter(r => r.success).forEach(r => {
+                        addHistory({ text: r.data?.text || '', title: r.data?.title || url, progress_str: r.progress_str, time: new Date().toLocaleString('zh-CN') });
+                    });
+                } else {
+                    resultBox.innerHTML = '❌ ' + data.message;
+                    showToast(data.message, 'error');
+                }
+            } catch (e) { showToast('网络错误', 'error'); }
+            finally { btn.disabled = false; btn.innerHTML = orig; }
+        }
+
+        // ========== 批量发送 ==========
+        async function sendBatch() {
+            const creds = getCredentials();
+            if (!creds.sessdata || !creds.bili_jct) { showToast('请先保存 B站凭证', 'error'); return; }
+
+            const url = document.getElementById('video-url').value.trim();
+            const text = document.getElementById('batch-text').value.trim();
+            const interval = parseFloat(document.getElementById('interval').value) || 2;
+            if (!url || !text) { showToast('请填写视频链接和弹幕内容', 'error'); return; }
+
+            const messages = text.split('\n').map(s => s.trim()).filter(s => s);
+            if (messages.length === 0) { showToast('请输入至少一条弹幕', 'error'); return; }
+
+            const btn = document.getElementById('batch-btn');
+            const orig = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = `<span class="spinner"></span> 发送中 (0/${messages.length})...`;
+
+            try {
+                const resp = await fetch('/api/send-batch', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ ...creds, url, messages, mode: currentBatchMode, color: currentBatchColor, interval }),
+                });
+                const data = await resp.json();
+                const resultBox = document.getElementById('send-result');
+                resultBox.className = 'result-box show ' + (data.success ? 'result-success' : 'result-error');
+
+                if (data.success) {
+                    const sc = data.results.filter(r => r.success).length;
+                    resultBox.innerHTML = `✅ ${data.message}<br><br>` +
+                        data.results.map(r => `${r.success ? '✅' : '❌'} [${r.index}/${r.total}] ${r.data?.text || ''} - ${r.message}`).join('<br>');
+                    showToast(`批量发送完成: ${sc}/${messages.length} 成功`, 'success');
+                    data.results.filter(r => r.success).forEach(r => {
+                        addHistory({ text: r.data?.text || '', title: r.data?.title || url, time: new Date().toLocaleString('zh-CN') });
+                    });
+                } else {
+                    resultBox.innerHTML = '❌ ' + data.message;
+                    showToast(data.message, 'error');
+                }
+            } catch (e) { showToast('网络错误', 'error'); }
+            finally { btn.disabled = false; btn.innerHTML = orig; }
+        }
+
+        // ========== 定时发送（客户端 setTimeout） ==========
+        function createScheduledTask() {
+            const creds = getCredentials();
+            if (!creds.sessdata || !creds.bili_jct) { showToast('请先保存 B站凭证', 'error'); return; }
+
+            const url = document.getElementById('video-url').value.trim();
+            const text = document.getElementById('scheduled-text').value.trim();
+            const timeVal = document.getElementById('scheduled-time').value;
+            const sendInterval = parseFloat(document.getElementById('scheduled-interval').value) || 2;
+            if (!url || !text) { showToast('请填写视频链接和弹幕内容', 'error'); return; }
+            if (!timeVal) { showToast('请选择发送时间', 'error'); return; }
+
+            const messages = text.split('\n').map(s => s.trim()).filter(s => s);
+            if (messages.length === 0) { showToast('请输入至少一条弹幕', 'error'); return; }
+
+            const targetTime = new Date(timeVal);
+            const now = new Date();
+            const delay = targetTime - now;
+            if (delay <= 0) { showToast('请选择未来的时间', 'error'); return; }
+
+            const taskId = 'task_' + Date.now();
+            const task = {
+                id: taskId,
+                url, messages,
+                mode: currentScheduledMode,
+                color: currentScheduledColor,
+                scheduled_at: targetTime.toLocaleString('zh-CN'),
+                target_ts: targetTime.getTime(),
+                status: 'pending',
+                message_count: messages.length,
+                send_interval: sendInterval,
+                created_at: now.toLocaleString('zh-CN'),
+            };
+            scheduledTasks.push(task);
+
+            // 设置定时器
+            taskTimers[taskId] = setTimeout(() => executeScheduledTask(taskId), delay);
+
+            showToast(`定时任务已创建，将在 ${task.scheduled_at} 发送`, 'success');
+            renderTasks();
+
+            // 倒计时更新
+            task.countdownInterval = setInterval(() => {
+                const remaining = task.target_ts - Date.now();
+                if (remaining <= 0) {
+                    clearInterval(task.countdownInterval);
+                    return;
+                }
+                const el = document.getElementById(`countdown-${taskId}`);
+                if (el) {
+                    const mins = Math.floor(remaining / 60000);
+                    const secs = Math.floor((remaining % 60000) / 1000);
+                    el.textContent = `倒计时: ${mins}分${secs}秒`;
+                }
+            }, 1000);
+        }
+
+        async function executeScheduledTask(taskId) {
+            const task = scheduledTasks.find(t => t.id === taskId);
+            if (!task || task.status === 'cancelled') return;
+
+            task.status = 'running';
+            renderTasks();
+
+            const creds = getCredentials();
+            const btn = document.getElementById('scheduled-btn');
+
+            try {
+                const resp = await fetch('/api/send-batch', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        ...creds,
+                        url: task.url,
+                        messages: task.messages,
+                        mode: task.mode,
+                        color: task.color,
+                        interval: task.send_interval,
+                    }),
+                });
+                const data = await resp.json();
+
+                if (data.success) {
+                    const sc = data.results.filter(r => r.success).length;
+                    task.status = 'completed';
+                    task.success_count = sc;
+                    task.total_count = task.messages.length;
+                    showToast(`定时发送完成: ${sc}/${task.messages.length} 成功`, 'success');
+                    data.results.filter(r => r.success).forEach(r => {
+                        addHistory({ text: r.data?.text || '', title: r.data?.title || task.url, time: new Date().toLocaleString('zh-CN') });
+                    });
+                } else {
+                    task.status = 'completed';
+                    task.success_count = 0;
+                    task.error = data.message;
+                    showToast('定时发送失败: ' + data.message, 'error');
+                }
+            } catch (e) {
+                task.status = 'completed';
+                task.error = '网络错误';
+                showToast('定时发送失败: 网络错误', 'error');
+            }
+            if (task.countdownInterval) clearInterval(task.countdownInterval);
+            renderTasks();
+        }
+
+        function cancelTask(taskId) {
+            if (taskTimers[taskId]) {
+                clearTimeout(taskTimers[taskId]);
+                delete taskTimers[taskId];
+            }
+            const task = scheduledTasks.find(t => t.id === taskId);
+            if (task) {
+                task.status = 'cancelled';
+                if (task.countdownInterval) clearInterval(task.countdownInterval);
+            }
+            showToast('任务已取消', 'success');
+            renderTasks();
+        }
+
+        function renderTasks() {
+            const card = document.getElementById('task-card');
+            const list = document.getElementById('task-list');
+            const count = document.getElementById('task-count');
+
+            if (scheduledTasks.length === 0) {
+                card.style.display = 'none';
+                return;
+            }
+
+            card.style.display = 'block';
+            count.textContent = `${scheduledTasks.length} 个`;
+            list.innerHTML = scheduledTasks.slice().reverse().map(t => `
+                <div class="task-item">
+                    <span class="task-status status-${t.status}">${t.status}</span>
+                    <span style="flex:1;">
+                        <strong>${t.scheduled_at}</strong> ·
+                        ${t.message_count} 条弹幕 ·
+                        ${t.url.substring(0, 30)}...
+                        ${t.status === 'pending' ? `<br><span class="countdown" id="countdown-${t.id}"></span>` : ''}
+                        ${t.status === 'completed' && t.success_count !== undefined ? ` · ${t.success_count}/${t.total_count} 成功` : ''}
+                        ${t.error ? ` · ${t.error}` : ''}
+                    </span>
+                    ${t.status === 'pending' ? `<button class="btn btn-outline btn-sm" onclick="cancelTask('${t.id}')">取消</button>` : ''}
+                </div>
+            `).join('');
+        }
+
+        // ========== 历史（localStorage） ==========
+        function getHistory() {
+            try { return JSON.parse(localStorage.getItem('bili_history') || '[]'); }
+            catch { return []; }
+        }
+
+        function addHistory(item) {
+            const hist = getHistory();
+            hist.push(item);
+            if (hist.length > 200) hist.shift();
+            localStorage.setItem('bili_history', JSON.stringify(hist));
+            renderHistory();
+        }
+
+        function renderHistory() {
+            const hist = getHistory();
+            const list = document.getElementById('history-list');
+            const count = document.getElementById('history-count');
+            count.textContent = `${hist.length} 条`;
+            if (hist.length === 0) {
+                list.innerHTML = '<div class="empty-state">暂无发送记录</div>';
+                return;
+            }
+            list.innerHTML = hist.slice().reverse().map(h => `
+                <div class="history-item">
+                    <span class="time">${h.time || ''}</span>
+                    ${h.progress_str ? `<span class="progress-tag">${h.progress_str}</span>` : ''}
+                    <span class="text">"${h.text || ''}"</span>
+                    <span class="video">${(h.title || '').substring(0,15)}...</span>
+                </div>
+            `).join('');
+        }
+
+        function clearHistory() {
+            localStorage.removeItem('bili_history');
+            renderHistory();
+            showToast('历史已清空', 'success');
+        }
+
+        // ========== 工具函数 ==========
+        function showToast(msg, type) {
+            const toast = document.createElement('div');
+            toast.className = 'toast';
+            toast.style.background = type === 'success' ? '#00b340' : '#f25d43';
+            toast.style.color = 'white';
+            toast.textContent = msg;
+            document.body.appendChild(toast);
+            setTimeout(() => toast.remove(), 3000);
+        }
+
+        function toggleCollapse(id, header) {
+            const body = document.getElementById(id);
+            const arrow = header.querySelector('.arrow');
+            body.classList.toggle('show');
+            arrow.classList.toggle('open');
+        }
+
+        // 字数统计
+        document.getElementById('danmaku-text').addEventListener('input', function() {
+            document.getElementById('char-count').textContent = `${this.value.length}/100 字`;
+        });
+        document.getElementById('batch-text').addEventListener('input', function() {
+            const lines = this.value.split('\n').filter(s => s.trim()).length;
+            document.getElementById('batch-count').textContent = `${lines} 条弹幕`;
+        });
+        document.getElementById('timed-text').addEventListener('input', function() {
+            const lines = this.value.split('\n').filter(s => s.trim()).length;
+            document.getElementById('timed-count').textContent = `${lines} 条弹幕`;
+        });
+        document.getElementById('scheduled-text').addEventListener('input', function() {
+            const lines = this.value.split('\n').filter(s => s.trim()).length;
+            document.getElementById('scheduled-count').textContent = `${lines} 条弹幕`;
+        });
+
+        // ========== 初始化 ==========
+        initColors('color-grid', 'single');
+        initColors('timed-color-grid', 'timed');
+        initColors('batch-color-grid', 'batch');
+        initColors('scheduled-color-grid', 'scheduled');
+        renderHistory();
+
+        // 恢复已保存的凭证到输入框
+        const savedCreds = getCredentials();
+        if (savedCreds.sessdata) {
+            document.getElementById('sessdata').value = savedCreds.sessdata;
+            document.getElementById('bili_jct').value = savedCreds.bili_jct;
+            document.getElementById('cred-badge').textContent = '已设置';
+            document.getElementById('cred-badge').className = 'badge badge-ok';
+        }
+
+        // 设置默认定时时间为当前时间 + 10 分钟
+        const defaultTime = new Date(Date.now() + 10 * 60 * 1000);
+        defaultTime.setSeconds(0);
+        const tzOffset = defaultTime.getTimezoneOffset() * 60000;
+        const localISO = new Date(defaultTime.getTime() - tzOffset).toISOString().slice(0, 16);
+        document.getElementById('scheduled-time').value = localISO;
+    </script>
+</body>
+</html>
