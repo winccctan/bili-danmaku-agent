@@ -549,6 +549,7 @@ def danmaku_list():
                         "time_str": beijing_time_str(item["ctime"]),
                         "pool": item["pool"],
                         "dmid": item.get("idStr", ""),
+                        "midHash": item.get("midHash", ""),
                     })
             except Exception:
                 continue

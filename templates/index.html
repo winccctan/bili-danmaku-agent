@@ -1365,9 +1365,10 @@
                 const mineTag = isMine ? '<span style="font-size:11px; padding:1px 6px; border-radius:4px; background:var(--bili-blue); color:white; flex-shrink:0;">我发的</span>' : '';
                 const ts = d.time_str ? d.time_str.substring(5) : ''; // 去掉年份
                 const likeBtn = d.dmid ? `<button onclick="likeDanmaku('${d.dmid}', this)" style="border:none; background:transparent; cursor:pointer; font-size:14px; padding:2px 6px; border-radius:4px; flex-shrink:0; color:var(--text-tertiary); transition:all 0.2s;" onmouseover="this.style.background='var(--bg-primary)';this.style.color='var(--bili-pink)'" onmouseout="this.style.background='transparent';this.style.color='var(--text-tertiary)'" title="点赞">👍</button>` : '';
+                const hashTag = d.midHash ? `<span style="font-size:10px; padding:1px 5px; border-radius:4px; background:var(--bg-secondary); color:var(--text-tertiary); flex-shrink:0; font-family:monospace; cursor:help;" title="用户哈希(同值=同一用户)">${d.midHash.substring(0,8)}</span>` : '';
                 return `<div style="padding:8px 12px; border-bottom:1px solid var(--border); ${highlight} display:flex; align-items:center; gap:6px; font-size:13px;">
                     <span style="color:var(--text-tertiary); min-width:48px; flex-shrink:0;">${d.progress_str}</span>
-                    ${mineTag}${modeTag}${colorDot}
+                    ${mineTag}${modeTag}${colorDot}${hashTag}
                     <span style="flex:1; word-break:break-all;">${escapeHtml(d.text)}</span>
                     ${likeBtn}
                     <span style="color:var(--text-tertiary); font-size:11px; white-space:nowrap; flex-shrink:0;">${ts}</span>
