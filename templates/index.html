@@ -271,8 +271,8 @@
             <div id="tab-single">
                 <div class="form-group">
                     <label>弹幕内容</label>
-                    <textarea id="danmaku-text" placeholder="输入弹幕内容..." maxlength="30"></textarea>
-                    <p class="hint" id="char-count">0/30 字（普通用户20字，大会员30字）</p>
+                    <textarea id="danmaku-text" placeholder="输入弹幕内容..." maxlength="100"></textarea>
+                    <p class="hint" id="char-count">0/100 字</p>
                 </div>
 
                 <div class="form-group">
@@ -1473,17 +1473,14 @@
 
         // 字数统计
         document.getElementById('danmaku-text').addEventListener('input', function() {
-            const len = this.value.length;
-            let hint = `${len}/30 字`;
-            if (len > 20) hint = `${len}/30 字 · ⚠️ 普通用户上限20字`;
-            document.getElementById('char-count').textContent = hint;
+            document.getElementById('char-count').textContent = `${this.value.length}/100 字`;
         });
         document.getElementById('batch-text').addEventListener('input', function() {
             const lines = this.value.split('\n').filter(s => s.trim());
             const count = lines.length;
-            const tooLong = lines.filter(s => s.length > 20);
+            const tooLong = lines.filter(s => s.length > 100);
             let text = `${count} 条弹幕`;
-            if (tooLong.length > 0) text += ` · ⚠️ ${tooLong.length} 条超过20字`;
+            if (tooLong.length > 0) text += ` · ⚠️ ${tooLong.length} 条超过100字`;
             document.getElementById('batch-count').textContent = text;
         });
         document.getElementById('timed-text').addEventListener('input', function() {
@@ -1493,18 +1490,18 @@
         document.getElementById('scheduled-text').addEventListener('input', function() {
             const lines = this.value.split('\n').filter(s => s.trim());
             const count = lines.length;
-            const tooLong = lines.filter(s => s.length > 20);
+            const tooLong = lines.filter(s => s.length > 100);
             let text = `${count} 条弹幕`;
-            if (tooLong.length > 0) text += ` · ⚠️ ${tooLong.length} 条超过20字`;
+            if (tooLong.length > 0) text += ` · ⚠️ ${tooLong.length} 条超过100字`;
             document.getElementById('scheduled-count').textContent = text;
         });
         document.getElementById('auto-text').addEventListener('input', function() {
             const lines = this.value.split('\n').filter(s => s.trim());
             const count = lines.length;
-            const tooLong = lines.filter(s => s.trim().length > 20);
+            const tooLong = lines.filter(s => s.trim().length > 100);
             let text = `${count} 条弹幕`;
             if (tooLong.length > 0) {
-                text += ` · ⚠️ ${tooLong.length} 条超过20字（B站限制：普通20字/大会员30字）`;
+                text += ` · ⚠️ ${tooLong.length} 条超过100字（B站限制：100字）`;
             }
             document.getElementById('auto-count').textContent = text;
         });

@@ -158,12 +158,10 @@ def send_danmaku_api(
     if not sessdata or not bili_jct:
         return {"success": False, "message": "缺少认证信息，请先设置 SESSDATA 和 bili_jct"}
 
-    # B站弹幕字数限制：普通用户 20 字，大会员 30 字
+    # B站弹幕字数限制：100 字
     text_len = len(text)
-    if text_len > 30:
-        return {"success": False, "message": f"弹幕太长了（{text_len}字），B站最多只能发 30 字（大会员）或 20 字（普通用户）。请缩短后重试"}
-    if text_len > 20:
-        return {"success": False, "message": f"弹幕超过 20 字（当前 {text_len} 字），普通用户最多发 20 字，大会员最多 30 字。如果大会员可忽略此提示"}
+    if text_len > 100:
+        return {"success": False, "message": f"弹幕太长了（{text_len}字），B站最多只能发 100 字。请缩短后重试"}
 
     session = make_session(sessdata, bili_jct)
     try:
