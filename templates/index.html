@@ -1376,10 +1376,12 @@
                 const modeTag = `<span style="font-size:11px; padding:1px 6px; border-radius:4px; background:var(--bg-primary); color:var(--text-tertiary); flex-shrink:0;">${d.mode_str}</span>`;
                 const mineTag = isMine ? '<span style="font-size:11px; padding:1px 6px; border-radius:4px; background:var(--bili-blue); color:white; flex-shrink:0;">我发的</span>' : '';
                 const ts = d.time_str ? d.time_str.substring(5) : ''; // 去掉年份
+                const likeBtn = d.dmid ? `<button onclick="likeDanmaku('${d.dmid}', this)" style="border:none; background:transparent; cursor:pointer; font-size:14px; padding:2px 6px; border-radius:4px; flex-shrink:0; color:var(--text-tertiary); transition:all 0.2s;" onmouseover="this.style.background='var(--bg-primary)';this.style.color='var(--bili-pink)'" onmouseout="this.style.background='transparent';this.style.color='var(--text-tertiary)'" title="点赞">👍</button>` : '';
                 return `<div style="padding:8px 12px; border-bottom:1px solid var(--border); ${highlight} display:flex; align-items:center; gap:6px; font-size:13px;">
                     <span style="color:var(--text-tertiary); min-width:48px; flex-shrink:0;">${d.progress_str}</span>
                     ${mineTag}${modeTag}${colorDot}
                     <span style="flex:1; word-break:break-all;">${escapeHtml(d.text)}</span>
+                    ${likeBtn}
                     <span style="color:var(--text-tertiary); font-size:11px; white-space:nowrap; flex-shrink:0;">${ts}</span>
                 </div>`;
             }).join('');
@@ -1389,6 +1391,46 @@
             const div = document.createElement('div');
             div.textContent = text;
             return div.innerHTML;
+        }
+
+        async function likeDanmaku(dmid, btn) {
+            const creds = getCredentials();
+            if (!creds.sessdata || !creds.bili_jct) {
+                showToast('请先设置 SESSDATA 和 bili_jct', 'error');
+                return;
+            }
+            const url = document.getElementById('video-url').value.trim();
+            if (!url) {
+                showToast('请先输入视频链接', 'error');
+                return;
+            }
+
+            const originalText = btn.textContent;
+            btn.disabled = true;
+            btn.textContent = '⏳';
+
+            try {
+                const resp = await fetch('/api/danmaku-like', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ ...creds, url, dmid, op: 1, page: selectedPage }),
+                });
+                const data = await resp.json();
+
+                if (data.success) {
+                    btn.textContent = '👍';
+                    btn.style.color = 'var(--bili-pink)';
+                    showToast('点赞成功！', 'success');
+                } else {
+                    btn.textContent = originalText;
+                    showToast(data.message || '点赞失败', 'error');
+                }
+            } catch (e) {
+                btn.textContent = originalText;
+                showToast('网络错误: ' + e.message, 'error');
+            } finally {
+                btn.disabled = false;
+            }
         }
 
         // ========== 工具函数 ==========

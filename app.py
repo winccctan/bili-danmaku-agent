@@ -611,6 +611,84 @@ def danmaku_list():
         return jsonify({"success": False, "message": str(e)})
 
 
+def like_danmaku_api(sessdata: str, bili_jct: str, bvid: str, dmid: str, op: int = 1, page: int = 1) -> dict:
+    """给指定弹幕点赞/取消点赞
+
+    op: 1=点赞, 2=取消点赞
+    """
+    if not sessdata or not bili_jct:
+        return {"success": False, "message": "缺少认证信息"}
+    if not dmid:
+        return {"success": False, "message": "缺少弹幕 ID (dmid)"}
+
+    session = make_session(sessdata, bili_jct)
+    try:
+        info = get_video_info(bvid, session)
+        pages = info.get("pages", [])
+
+        # 根据分P选择对应的 CID
+        if pages and len(pages) > 1:
+            target_page = None
+            for p in pages:
+                if p["page"] == page:
+                    target_page = p
+                    break
+            if not target_page:
+                target_page = pages[0]
+            cid = target_page["cid"]
+        else:
+            cid = info["cid"]
+
+        api_url = "https://api.bilibili.com/x/v2/dm/like"
+        data = {
+            "oid": cid,
+            "dmid": dmid,
+            "op": op,
+            "csrf": bili_jct,
+        }
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+            "Referer": f"https://www.bilibili.com/video/{bvid}",
+            "Origin": "https://www.bilibili.com",
+        }
+        resp = session.post(api_url, data=data, headers=headers, timeout=10)
+        result = resp.json()
+
+        if result.get("code") == 0:
+            action = "点赞" if op == 1 else "取消点赞"
+            return {"success": True, "message": f"{action}成功！"}
+        else:
+            return {
+                "success": False,
+                "message": f"B站返回错误: code={result.get('code')} {result.get('message', '')}",
+                "data": {"code": result.get("code")},
+            }
+    except Exception as e:
+        return {"success": False, "message": f"请求失败: {str(e)}"}
+
+
+@app.route("/api/danmaku-like", methods=["POST"])
+def danmaku_like():
+    """弹幕点赞/取消点赞"""
+    data = request.json or {}
+    sessdata = data.get("sessdata", "").strip()
+    bili_jct = data.get("bili_jct", "").strip()
+    url = data.get("url", "").strip()
+    dmid = str(data.get("dmid", "")).strip()
+    op = int(data.get("op", 1))
+    page = int(data.get("page", 1))
+
+    if not url or not dmid:
+        return jsonify({"success": False, "message": "视频链接和弹幕ID不能为空"})
+
+    bvid = extract_bvid(url)
+    if not bvid:
+        return jsonify({"success": False, "message": "无法解析 BV ID"})
+
+    result = like_danmaku_api(sessdata, bili_jct, bvid, dmid, op=op, page=page)
+    return jsonify(result)
+
+
 @app.route("/api/send", methods=["POST"])
 def send_single():
     """发送单条弹幕"""
