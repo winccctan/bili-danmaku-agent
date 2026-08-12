@@ -613,11 +613,7 @@
             resultBox.innerHTML = '正在验证...';
 
             try {
-                const resp = await fetch('/api/login-check', {
-                    method: 'POST', headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify(creds),
-                });
-                const data = await resp.json();
+                const data = await apiPost('/api/login-check', creds);
                 if (data.logged_in) {
                     resultBox.className = 'result-box show result-success';
                     resultBox.innerHTML = `✅ ${data.message}`;
@@ -631,8 +627,28 @@
                 }
             } catch (e) {
                 resultBox.className = 'result-box show result-error';
-                resultBox.innerHTML = '❌ 网络错误';
+                resultBox.innerHTML = '❌ 请求失败: ' + e.message;
             }
+        }
+
+        // 统一 API 请求：自动处理 HTTP 错误和非 JSON 响应
+        async function apiPost(endpoint, body) {
+            const resp = await fetch(endpoint, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(body),
+            });
+            const text = await resp.text();
+            let data;
+            try {
+                data = JSON.parse(text);
+            } catch (e) {
+                throw new Error(`服务端返回非JSON (HTTP ${resp.status}): ${text.slice(0, 120)}`);
+            }
+            if (!resp.ok) {
+                throw new Error(data.message || `HTTP ${resp.status} ${resp.statusText}`);
+            }
+            return data;
         }
 
         // ========== 颜色初始化 ==========
@@ -660,11 +676,7 @@
             const url = document.getElementById('video-url').value.trim();
             if (!url) { document.getElementById('video-info-box').classList.add('hidden'); return; }
             try {
-                const resp = await fetch('/api/video-info', {
-                    method: 'POST', headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ url, page: selectedPage }),
-                });
-                const data = await resp.json();
+                const data = await apiPost('/api/video-info', { url, page: selectedPage });
                 if (data.success) {
                     const v = data.data;
                     videoPages = v.pages || [];
@@ -802,11 +814,7 @@
             btn.innerHTML = '<span class="spinner"></span> 发送中...';
 
             try {
-                const resp = await fetch('/api/send', {
-                    method: 'POST', headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ ...creds, url, text, mode: currentMode, color: currentColor, progress, page: selectedPage }),
-                });
-                const data = await resp.json();
+                const data = await apiPost('/api/send', { ...creds, url, text, mode: currentMode, color: currentColor, progress, page: selectedPage });
                 const resultBox = document.getElementById('send-result');
                 resultBox.className = 'result-box show ' + (data.success ? 'result-success' : 'result-error');
                 resultBox.innerHTML = (data.success ? '✅ ' : '❌ ') + data.message;
@@ -814,7 +822,7 @@
                     showToast('弹幕发送成功！', 'success');
                     addHistory({ text, title: data.data?.title || url, progress_str: progress, time: new Date().toLocaleString('zh-CN') });
                 } else showToast(data.message, 'error');
-            } catch (e) { showToast('网络错误', 'error'); }
+            } catch (e) { showToast('请求失败: ' + e.message, 'error'); }
             finally { btn.disabled = false; btn.innerHTML = orig; }
         }
 
@@ -839,15 +847,11 @@
             btn.innerHTML = `<span class="spinner"></span> 发送中 (0/${messages.length})...`;
 
             try {
-                const resp = await fetch('/api/send-timed', {
-                    method: 'POST', headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        ...creds, url, messages, mode: currentTimedMode, color: currentTimedColor,
-                        time_start: timeStart, time_end: timeEnd,
-                        distribution: currentDist, send_interval: sendInterval, page: selectedPage,
-                    }),
+                const data = await apiPost('/api/send-timed', {
+                    ...creds, url, messages, mode: currentTimedMode, color: currentTimedColor,
+                    time_start: timeStart, time_end: timeEnd,
+                    distribution: currentDist, send_interval: sendInterval, page: selectedPage,
                 });
-                const data = await resp.json();
                 const resultBox = document.getElementById('send-result');
                 resultBox.className = 'result-box show ' + (data.success ? 'result-success' : 'result-error');
 
@@ -892,11 +896,7 @@
             btn.innerHTML = `<span class="spinner"></span> 发送中 (0/${messages.length})...`;
 
             try {
-                const resp = await fetch('/api/send-batch', {
-                    method: 'POST', headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ ...creds, url, messages, mode: currentBatchMode, color: currentBatchColor, interval, progress, page: selectedPage }),
-                });
-                const data = await resp.json();
+                const data = await apiPost('/api/send-batch', { ...creds, url, messages, mode: currentBatchMode, color: currentBatchColor, interval, progress, page: selectedPage });
                 const resultBox = document.getElementById('send-result');
                 resultBox.className = 'result-box show ' + (data.success ? 'result-success' : 'result-error');
 
@@ -991,19 +991,15 @@
             updateAutoProgress(`<span class="spinner"></span> 正在发送第 ${idx}/${total} 条: "${msg}"`);
 
             try {
-                const resp = await fetch('/api/send', {
-                    method: 'POST', headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        ...creds,
-                        url: autoSendState.url,
-                        text: msg,
-                        mode: currentAutoMode,
-                        color: currentAutoColor,
-                        progress: autoSendState.progress,
-                        page: selectedPage,
-                    }),
+                const data = await apiPost('/api/send', {
+                    ...creds,
+                    url: autoSendState.url,
+                    text: msg,
+                    mode: currentAutoMode,
+                    color: currentAutoColor,
+                    progress: autoSendState.progress,
+                    page: selectedPage,
                 });
-                const data = await resp.json();
                 autoSendState.totalSent++;
 
                 if (data.success) {
@@ -1074,7 +1070,7 @@
                 autoSendState.failCount++;
                 autoSendState.totalSent++;
 
-                let html = `❌ [${idx}/${total}] "${msg}" → 网络错误${e.message ? '(' + e.message + ')' : ''}<br>`;
+                let html = `❌ [${idx}/${total}] "${msg}" → 请求失败: ${e.message}<br>`;
                 html += `<span style="color:var(--text-tertiary); font-size:12px;">总计发送 ${autoSendState.totalSent} 条 · 成功 ${autoSendState.successCount} · 失败 ${autoSendState.failCount}</span><br>`;
 
                 autoSendState.index++;
@@ -1180,19 +1176,15 @@
             const btn = document.getElementById('scheduled-btn');
 
             try {
-                const resp = await fetch('/api/send-batch', {
-                    method: 'POST', headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        ...creds,
-                        url: task.url,
-                        messages: task.messages,
-                        mode: task.mode,
-                        color: task.color,
-                        interval: task.send_interval,
-                        page: selectedPage,
-                    }),
+                const data = await apiPost('/api/send-batch', {
+                    ...creds,
+                    url: task.url,
+                    messages: task.messages,
+                    mode: task.mode,
+                    color: task.color,
+                    interval: task.send_interval,
+                    page: selectedPage,
                 });
-                const data = await resp.json();
 
                 if (data.success) {
                     const sc = data.results.filter(r => r.success).length;
@@ -1314,11 +1306,7 @@
 
             try {
                 const creds = getCredentials();
-                const resp = await fetch('/api/danmaku-list', {
-                    method: 'POST', headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ url, page: selectedPage, ...creds }),
-                });
-                const data = await resp.json();
+                const data = await apiPost('/api/danmaku-list', { url, page: selectedPage, ...creds });
 
                 if (data.success) {
                     danmakuListData = data.data.danmaku;
@@ -1339,7 +1327,7 @@
                     document.getElementById('dm-list').innerHTML = `<div class="empty-state">❌ ${data.message}</div>`;
                 }
             } catch (e) {
-                showToast('网络错误', 'error');
+                showToast('请求失败: ' + e.message, 'error');
                 document.getElementById('dm-list').innerHTML = '<div class="empty-state">❌ 网络错误，请重试</div>';
             } finally {
                 btn.disabled = false;
@@ -1410,12 +1398,7 @@
             btn.textContent = '⏳';
 
             try {
-                const resp = await fetch('/api/danmaku-like', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ ...creds, url, dmid, op: 1, page: selectedPage }),
-                });
-                const data = await resp.json();
+                const data = await apiPost('/api/danmaku-like', { ...creds, url, dmid, op: 1, page: selectedPage });
 
                 if (data.success) {
                     btn.textContent = '👍';
