@@ -639,11 +639,13 @@ def like_danmaku_api(sessdata: str, bili_jct: str, bvid: str, dmid: str, op: int
         else:
             cid = info["cid"]
 
-        api_url = "https://api.bilibili.com/x/v2/dm/like"
+        # 正确的弹幕点赞 API 端点（旧 x/v2/dm/like 已废弃返回空响应）
+        api_url = "https://api.bilibili.com/x/v2/dm/thumbup/add"
         data = {
             "oid": cid,
             "dmid": dmid,
             "op": op,
+            "platform": "web_player",
             "csrf": bili_jct,
         }
         headers = {
@@ -652,16 +654,37 @@ def like_danmaku_api(sessdata: str, bili_jct: str, bvid: str, dmid: str, op: int
             "Origin": "https://www.bilibili.com",
         }
         resp = session.post(api_url, data=data, headers=headers, timeout=10)
-        result = resp.json()
 
-        if result.get("code") == 0:
+        # 安全解析响应，避免空响应或非 JSON 导致崩溃
+        resp_text = resp.text or ""
+        try:
+            result = resp.json()
+        except Exception:
+            return {
+                "success": False,
+                "message": f"B站返回非JSON响应 (HTTP {resp.status_code}): {resp_text[:120]}",
+            }
+
+        code = result.get("code", -1)
+        # 错误码映射
+        err_map = {
+            -101: "账号未登录",
+            -111: "CSRF 校验失败",
+            -400: "请求错误",
+            36106: "该弹幕已被删除",
+            36805: "该视频禁止点赞弹幕",
+            65004: "取消赞失败（未点赞过）",
+            65006: "已赞过",
+        }
+        if code == 0:
             action = "点赞" if op == 1 else "取消点赞"
             return {"success": True, "message": f"{action}成功！"}
         else:
+            err_msg = err_map.get(code, result.get("message", ""))
             return {
                 "success": False,
-                "message": f"B站返回错误: code={result.get('code')} {result.get('message', '')}",
-                "data": {"code": result.get("code")},
+                "message": f"B站返回错误 code={code}: {err_msg}" if err_msg else f"B站返回错误 code={code}",
+                "data": {"code": code},
             }
     except Exception as e:
         return {"success": False, "message": f"请求失败: {str(e)}"}
