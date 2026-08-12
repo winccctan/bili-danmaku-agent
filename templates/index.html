@@ -1074,7 +1074,7 @@
                 autoSendState.failCount++;
                 autoSendState.totalSent++;
 
-                let html = `❌ [${idx}/${total}] "${msg}" → 网络错误<br>`;
+                let html = `❌ [${idx}/${total}] "${msg}" → 网络错误${e.message ? '(' + e.message + ')' : ''}<br>`;
                 html += `<span style="color:var(--text-tertiary); font-size:12px;">总计发送 ${autoSendState.totalSent} 条 · 成功 ${autoSendState.successCount} · 失败 ${autoSendState.failCount}</span><br>`;
 
                 autoSendState.index++;
@@ -1451,20 +1451,34 @@
             document.getElementById('char-count').textContent = `${this.value.length}/100 字`;
         });
         document.getElementById('batch-text').addEventListener('input', function() {
-            const lines = this.value.split('\n').filter(s => s.trim()).length;
-            document.getElementById('batch-count').textContent = `${lines} 条弹幕`;
+            const lines = this.value.split('\n').filter(s => s.trim());
+            const count = lines.length;
+            const tooLong = lines.filter(s => s.length > 20);
+            let text = `${count} 条弹幕`;
+            if (tooLong.length > 0) text += ` · ⚠️ ${tooLong.length} 条超过20字`;
+            document.getElementById('batch-count').textContent = text;
         });
         document.getElementById('timed-text').addEventListener('input', function() {
             const lines = this.value.split('\n').filter(s => s.trim()).length;
             document.getElementById('timed-count').textContent = `${lines} 条弹幕`;
         });
         document.getElementById('scheduled-text').addEventListener('input', function() {
-            const lines = this.value.split('\n').filter(s => s.trim()).length;
-            document.getElementById('scheduled-count').textContent = `${lines} 条弹幕`;
+            const lines = this.value.split('\n').filter(s => s.trim());
+            const count = lines.length;
+            const tooLong = lines.filter(s => s.length > 20);
+            let text = `${count} 条弹幕`;
+            if (tooLong.length > 0) text += ` · ⚠️ ${tooLong.length} 条超过20字`;
+            document.getElementById('scheduled-count').textContent = text;
         });
         document.getElementById('auto-text').addEventListener('input', function() {
-            const lines = this.value.split('\n').filter(s => s.trim()).length;
-            document.getElementById('auto-count').textContent = `${lines} 条弹幕`;
+            const lines = this.value.split('\n').filter(s => s.trim());
+            const count = lines.length;
+            const tooLong = lines.filter(s => s.trim().length > 20);
+            let text = `${count} 条弹幕`;
+            if (tooLong.length > 0) {
+                text += ` · ⚠️ ${tooLong.length} 条超过20字（B站限制：普通20字/大会员30字）`;
+            }
+            document.getElementById('auto-count').textContent = text;
         });
         document.getElementById('dm-search').addEventListener('input', function() {
             if (danmakuListData.length > 0) renderDanmakuList();
